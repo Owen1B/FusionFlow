@@ -99,7 +99,7 @@ def simulate_weight_sensor_improved():
     for i, index in enumerate(spike_indices):
         if index < num_points:
             measurements[index] += spike_magnitudes[i]
-            
+    
     # 初始化滤波器
     # sigma_a: Controls how much the filter trusts the constant velocity model.
     # Smaller sigma_a -> smoother velocity, slower reaction to actual velocity changes.
@@ -117,7 +117,7 @@ def simulate_weight_sensor_improved():
     for i in range(num_points):
         filtered_weights_improved[i] = kf.update(measurements[i], dt)
         estimated_velocities_improved[i] = kf.get_velocity()
-
+    
     # 绘图
     time_axis = np.arange(0, total_time, dt)
     

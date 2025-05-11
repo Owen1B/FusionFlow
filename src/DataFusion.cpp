@@ -4,32 +4,44 @@
 /**
  * @brief DataFusion 类的构造函数。
  *
- * @param process_noise_Q 融合卡尔曼滤波器的过程噪声方差 (Q_df)。
- *                        表示真实流速本身随时间可能发生的变化的不确定性。
- * @param weight_sensor_flow_R 重量传感器流速估计的测量噪声方差 (R_df_weight)。
- *                             反映了来自 WeightKalmanFilter 的流速估计的可靠性。
- * @param drip_sensor_flow_R 滴速传感器流速估计的测量噪声方差 (R_df_drip)。
- *                           反映了来自 DripKalmanFilter 的流速估计的可靠性。
+ * @param q_flow 过程噪声方差 - 流速。
+ * @param r_weight_flow 测量噪声方差 - 重量传感器的流速。
+ * @param r_drip_flow 测量噪声方差 - 滴速传感器的流速。
+ * @param q_weight 过程噪声方差 - 剩余重量。
+ * @param r_weight_weight 测量噪声方差 - 重量传感器的剩余重量。
+ * @param r_drip_weight 测量噪声方差 - 滴速传感器的剩余重量。
  */
-DataFusion::DataFusion(float process_noise_Q, float weight_sensor_flow_R, float drip_sensor_flow_R) {
-    Q_df_process_noise = process_noise_Q;
-    R_df_weight_sensor_flow_noise = weight_sensor_flow_R;
-    R_df_drip_sensor_flow_noise = drip_sensor_flow_R;
+DataFusion::DataFusion(float q_flow, float r_weight_flow, float r_drip_flow,
+                       float q_weight, float r_weight_weight, float r_drip_weight) {
+    Q_flow_process_noise = q_flow;
+    R_weight_sensor_flow_noise = r_weight_flow;
+    R_drip_sensor_flow_noise = r_drip_flow;
+
+    Q_weight_process_noise = q_weight;
+    R_weight_sensor_weight_noise = r_weight_weight;
+    R_drip_sensor_weight_noise = r_drip_weight;
 
     // 初始化融合后流速的状态估计和协方差
-    x_fused_flow_rate_gps = 0.0f; // 初始融合流速估计为0 (g/s)
-    P_fused_cov = 1.0f;           // 初始估计协方差，表示对初始估计值有较大不确定性
+    x_fused_flow_rate_gps = 0.0f; 
+    P_fused_flow_cov = 1.0f;      
+
+    // 初始化融合后剩余重量的状态估计和协方差
+    x_fused_remaining_weight_g = 0.0f; 
+    P_fused_weight_cov = 10.0f; // 剩余重量的初始不确定性可能更大
 }
 
 /**
  * @brief 初始化或重置数据融合滤波器的状态。
  *
  * @param initial_fused_flow_rate_gps 融合后流速的初始估计值 (g/s)。
+ * @param initial_fused_remaining_weight_g 融合后剩余重量的初始估计值 (g)。
  */
-void DataFusion::init(float initial_fused_flow_rate_gps) {
+void DataFusion::init(float initial_fused_flow_rate_gps, float initial_fused_remaining_weight_g) {
     x_fused_flow_rate_gps = initial_fused_flow_rate_gps;
-    // 当用一个明确的初始值设定时，可以假设此时的不确定性相对较小。
-    P_fused_cov = 0.1f; 
+    P_fused_flow_cov = 0.1f; 
+
+    x_fused_remaining_weight_g = initial_fused_remaining_weight_g;
+    P_fused_weight_cov = 1.0f; // 明确初始化时，不确定性减小
 }
 
 /**
@@ -64,46 +76,82 @@ static void kalman_update_1d(float& x, float& P, float measurement, float measur
  *
  * @param flow_from_weight_sensor_gps 从 WeightKalmanFilter 获取的流速估计 (g/s)。
  * @param flow_from_drip_sensor_gps 从 DripKalmanFilter 获取的流速估计 (g/s)。
+ * @param weight_from_weight_sensor_g WeightKalmanFilter 估计的当前重量 (g)。
+ * @param weight_from_drip_sensor_g DripKalmanFilter 估计的剩余重量 (g)。
  * @param dt 距离上一次调用 update() 的时间间隔 (秒)。用于过程噪声的时间累积。
- * @return float 更新后的融合流速估计值 (g/s)。
  */
-float DataFusion::update(float flow_from_weight_sensor_gps, 
-                         float flow_from_drip_sensor_gps, 
-                         float dt) {
+void DataFusion::update(float flow_from_weight_sensor_gps, 
+                        float flow_from_drip_sensor_gps, 
+                        float weight_from_weight_sensor_g,
+                        float weight_from_drip_sensor_g,
+                        float dt) {
     // 安全检查：如果时间间隔无效，则不进行预测步骤
-    if (dt <= 1e-6f) return x_fused_flow_rate_gps; 
+    if (dt <= 1e-6f) return;
 
-    // === 1. 预测步骤 (针对融合后的流速 x_fused_flow_rate_gps) ===
-    // 状态预测：假设真实流速在两次测量之间可能基于其当前值发生小的随机游走。
-    // 对于一维情况，状态转移矩阵 F 通常为 [1]。
-    // x_predicted = F * x_current = 1 * x_fused_flow_rate_gps = x_fused_flow_rate_gps
-    // 所以，状态预测值就是当前的状态值。
-    float x_pred = x_fused_flow_rate_gps; // 预测的流速（在没有控制输入的情况下，等于当前流速）
+    // === 1. 预测步骤 ===
+    // --- 流速预测 ---
+    float x_pred_flow = x_fused_flow_rate_gps;
+    float P_pred_flow = P_fused_flow_cov + Q_flow_process_noise * dt;
+    x_fused_flow_rate_gps = x_pred_flow;
+    P_fused_flow_cov = P_pred_flow;
 
-    // 协方差预测：P_predicted = F * P_current * F_transpose + Q
-    // 对于 F=[1], 则 P_predicted = P_current + Q
-    // 这里的 Q_df_process_noise 代表在 dt 时间段内过程噪声引入的方差增加量。
-    // 如果 Q_df_process_noise 定义为单位时间的方差率，则应乘以 dt。
-    // 假设 Q_df_process_noise 已是针对一个dt时间间隔的方差增量，或者乘以dt得到。
-    float P_pred = P_fused_cov + Q_df_process_noise * dt; 
-                                                    
-    // 将预测结果赋回给当前状态和协方差，准备进行测量更新
-    x_fused_flow_rate_gps = x_pred;
-    P_fused_cov = P_pred;
+    // --- 剩余重量预测 ---
+    // 简单预测：假设当前融合后的剩余重量会根据当前融合后的流速减少
+    // 这使得重量预测和流速预测之间产生耦合
+    // x_pred_weight = x_current_weight - x_current_flow * dt
+    // 这种预测方式没有直接的标准卡尔曼过程噪声模型，所以我们主要依赖测量更新
+    // 但仍然可以为协方差添加过程噪声
+    float x_pred_weight = x_fused_remaining_weight_g - x_fused_flow_rate_gps * dt; 
+    if (x_pred_weight < 0) x_pred_weight = 0; // 重量不能为负
+    float P_pred_weight = P_fused_weight_cov + Q_weight_process_noise * dt; // 也可以让 Q_weight_process_noise 包含流速不确定性引入的项
+    x_fused_remaining_weight_g = x_pred_weight;
+    P_fused_weight_cov = P_pred_weight;
 
-    // === 2. 更新步骤 (依次使用每个传感器的流速作为测量值) ===
 
-    // 使用来自重量传感器的流速进行第一次更新
-    // 仅当该传感器的测量噪声方差有效（大于一个小阈值）时才进行更新
-    if (R_df_weight_sensor_flow_noise > 1e-9f) {
-        kalman_update_1d(x_fused_flow_rate_gps, P_fused_cov, flow_from_weight_sensor_gps, R_df_weight_sensor_flow_noise);
+    // === 2. 更新步骤 (依次使用每个传感器的估计值作为测量值) ===
+
+    // --- 流速更新 ---
+    if (R_weight_sensor_flow_noise > 1e-9f) {
+        kalman_update_1d(x_fused_flow_rate_gps, P_fused_flow_cov, flow_from_weight_sensor_gps, R_weight_sensor_flow_noise);
+    }
+    if (R_drip_sensor_flow_noise > 1e-9f) {
+        kalman_update_1d(x_fused_flow_rate_gps, P_fused_flow_cov, flow_from_drip_sensor_gps, R_drip_sensor_flow_noise);
     }
 
-    // 使用来自滴速传感器的流速进行第二次更新
-    // 同样，仅当其测量噪声方差有效时才更新
-    if (R_df_drip_sensor_flow_noise > 1e-9f) {
-        kalman_update_1d(x_fused_flow_rate_gps, P_fused_cov, flow_from_drip_sensor_gps, R_df_drip_sensor_flow_noise);
+    // --- 剩余重量更新 ---
+    if (R_weight_sensor_weight_noise > 1e-9f) {
+        kalman_update_1d(x_fused_remaining_weight_g, P_fused_weight_cov, weight_from_weight_sensor_g, R_weight_sensor_weight_noise);
+    }
+    if (R_drip_sensor_weight_noise > 1e-9f) {
+        kalman_update_1d(x_fused_remaining_weight_g, P_fused_weight_cov, weight_from_drip_sensor_g, R_drip_sensor_weight_noise);
     }
 
-    return x_fused_flow_rate_gps; // 返回最终融合后的流速估计
+    // 确保融合后的剩余重量不为负
+    if (x_fused_remaining_weight_g < 0.0f) {
+        x_fused_remaining_weight_g = 0.0f;
+    }
 } 
+
+// --- Implementation of new methods for fast convergence ---
+void DataFusion::setFlowMeasurementNoises(float r_from_weight, float r_from_drip) {
+    R_weight_sensor_flow_noise = r_from_weight;
+    R_drip_sensor_flow_noise = r_from_drip;
+}
+
+void DataFusion::getFlowMeasurementNoises(float& r_from_weight, float& r_from_drip) const {
+    r_from_weight = R_weight_sensor_flow_noise;
+    r_from_drip = R_drip_sensor_flow_noise;
+}
+
+void DataFusion::setWeightMeasurementNoises(float r_from_weight, float r_from_drip) {
+    R_weight_sensor_weight_noise = r_from_weight;
+    R_drip_sensor_weight_noise = r_from_drip;
+}
+
+void DataFusion::getWeightMeasurementNoises(float& r_from_weight, float& r_from_drip) const {
+    r_from_weight = R_weight_sensor_weight_noise;
+    r_from_drip = R_drip_sensor_weight_noise;
+}
+
+// float DataFusion::getFusedFlowRateGps() const { return x_fused_flow_rate_gps; } // Already defined in .h as inline
+// float DataFusion::getFusedRemainingWeightG() const { return x_fused_remaining_weight_g; } // Already defined in .h as inline 

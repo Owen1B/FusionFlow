@@ -21,15 +21,14 @@ private:
     float P_drip_rate_cov[2][2];    // 滴速卡尔曼滤波器的估计误差协方差矩阵 (2x2)
     float Q_drip_rate_sigma_a;    // 过程噪声参数：未建模的滴速加速度的标准差。
                                   // 影响滤波器对滴速变化的跟踪灵敏度。
-    float R_drip_rate_noise;      // 测量噪声参数：由 (drop_count / time_interval_s) 计算得到的
-                                  // 原始滴速测量值的方差。
+    float R_drip_rate_noise;     // 滴速测量的噪声方差 (可调)
 
     // --- 每滴重量 (WPD) 校准用的一维卡尔曼滤波器 ---
     float wpd_estimate_g_per_drip; // 当前估计的每滴重量 (g/drip)
     float P_wpd_cov;                 // WPD卡尔曼滤波器的估计误差协方差 (标量)
     float Q_wpd_process_noise;       // WPD过程噪声方差: 假设在校准期间，真实的每滴重量本身也可能发生微小变化。
-    float R_wpd_measurement_noise;   // WPD测量噪声方差: (weight_change / drop_count) 这个计算值的方差。
-    
+    float R_wpd_measurement_noise;   // WPD测量的噪声方差 (可调)
+
     // --- 校准控制与默认参数 ---
     bool calibrating_wpd;              // 标志位：如果为true，则当前处于WPD校准模式
     // uint32_t last_calibration_run_ms;  // 上次执行WPD校准更新的时间戳 (目前主要由外部逻辑控制时长)
@@ -43,6 +42,10 @@ private:
     // unsigned long last_drip_update_time_ms; // (已移除或未使用) 时间间隔dt由外部传入update函数
 
 public:
+    // --- 添加用于基于滴数计算剩余量的成员变量 ---
+    float known_initial_total_weight_g;    // 由外部设置的初始总液体重量 (g)
+    unsigned long total_drops_for_volume_calc; // 用于计算体积/剩余量的累计总滴数
+    bool initial_weight_for_volume_calc_set; // 标记初始重量是否已设置
     /**
      * @brief 构造一个新的 DripKalmanFilter 对象。
      *
@@ -73,13 +76,11 @@ public:
     /**
      * @brief 使用新的传感器数据更新滤波器状态。
      *
-     * @param drop_count 在 time_interval_s 时间内检测到的滴数。
-     * @param time_interval_s 距离上一次调用 update() 的时间间隔 (秒)。
-     * @param weight_sensor_change_g 从重量传感器测得的实际重量变化值 (g)。
-     *                               此参数仅在 calibrating_wpd 为 true (即WPD校准模式下) 时使用。
-     *                               通常是 (上周期滤波后重量 - 本周期滤波后重量)，所以消耗时为正值。
+     * @param measured_drip_rate 测量得到的滴速 (drips/sec)
+     * @param time_interval_s 距离上一次调用 update() 的时间间隔 (秒)
+     * @param weight_sensor_change_g 从重量传感器测得的实际重量变化值 (g)
      */
-    void update(int drop_count, float time_interval_s, float weight_sensor_change_g = 0.0f);
+    void update(float measured_drip_rate, float time_interval_s, float weight_sensor_change_g = 0.0f);
 
     /**
      * @brief 获取当前滤波后的滴速。
@@ -123,6 +124,46 @@ public:
     void setDefaultLiquidDensity(float density_g_per_ml) { current_liquid_density_g_per_ml = density_g_per_ml; }
     /** @brief 获取当前设定的液体密度。*/
     float getCurrentLiquidDensity() const { return current_liquid_density_g_per_ml; }
+
+    // --- 添加用于基于滴数计算剩余量的方法 ---
+    /**
+     * @brief 设置用于基于滴数计算剩余量的初始总液体重量。
+     * 调用此函数会重置内部累计的滴数。
+     * @param initial_weight_g 初始总液体重量 (g)。
+     */
+    void setInitialLiquidWeightForVolumeCalc(float initial_weight_g);
+
+    /**
+     * @brief 更新用于计算体积/剩余量的累计总滴数。
+     * @param drops_in_latest_period 最近一个周期内的新滴数。
+     */
+    void updateTotalDropsForVolumeCalc(int drops_in_latest_period);
+
+    /**
+     * @brief 基于累计滴数和校准的每滴重量，计算已输注的重量。
+     * @return float 已输注的液体重量 (g)。如果WPD未校准或过小，可能返回不准确的值。
+     */
+    float getInfusedWeightByDropsG() const;
+    
+    /**
+     * @brief 基于初始总重量和已滴注的量，计算剩余液体重量。
+     * @return float 估计的剩余液体重量 (g)。如果初始重量未设置，则行为未定义或返回0。
+     */
+    float getRemainingWeightByDropsG() const;
+
+    /**
+     * @brief 基于累计总重量和累计滴数进行WPD校准（主循环调用）。
+     * @param current_weight 当前滤波后重量（g）
+     */
+    void calibrateWpdByTotal(float current_weight);
+
+    float getTotalDropsForVolumeCalc() const { return total_drops_for_volume_calc; }
+    float getKnownInitialTotalWeightG() const { return known_initial_total_weight_g; }
+
+    void setDripRateMeasurementNoise(float r_drip_rate_noise_param) { R_drip_rate_noise = r_drip_rate_noise_param; }
+    float getDripRateMeasurementNoise() const { return R_drip_rate_noise; }
+    void setWpdMeasurementNoise(float r_wpd_noise_param) { R_wpd_measurement_noise = r_wpd_noise_param; }
+    float getWpdMeasurementNoise() const { return R_wpd_measurement_noise; }
 
 };
 
