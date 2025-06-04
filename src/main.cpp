@@ -247,10 +247,10 @@ const char HTML_WEBPAGE[] PROGMEM = R"rawliteral(
 )rawliteral";
 
 // --- WiFi 配置 ---
-// const char* WIFI_SSID = "1503"; // 您的WiFi SSID
-// const char* WIFI_PASS = "18310007230"; // 您的WiFi密码
-const char* WIFI_SSID = "三井寿的iPhone13"; // 您的WiFi SSID
-const char* WIFI_PASS = "12345678"; // 您的WiFi密码
+const char* WIFI_SSID = "1503"; // 您的WiFi SSID
+const char* WIFI_PASS = "18310007230"; // 您的WiFi密码
+// const char* WIFI_SSID = "三井寿的iPhone13"; // 您的WiFi SSID
+// const char* WIFI_PASS = "12345678"; // 您的WiFi密码
 bool wifi_connected_flag = false;
 
 // --- WebSocket 服务器配置 ---
@@ -270,19 +270,19 @@ WiFiServer http_server(80); // HTTP服务器监听80端口
 
 // --- 硬件引脚定义 ---
 const int PIN_WATER_SENSOR = 11; // 水滴传感器引脚
-#define NEOPIXEL_PIN 47        // NeoPixel LED 数据引脚
+#define NEOPIXEL_PIN 48        // NeoPixel LED 数据引脚
 #define NEOPIXEL_BRIGHTNESS 50 // NeoPixel 亮度 (0-255)
 Adafruit_NeoPixel pixels(1, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800); // 单个 NeoPixel 对象
 
 // NeoPixel 颜色定义 (GRB format)
 const uint32_t NEO_COLOR_OFF    = pixels.Color(0, 0, 0);
-const uint32_t NEO_COLOR_RED    = pixels.Color(0, 255, 0); // Red for NeoPixel GRB
-const uint32_t NEO_COLOR_GREEN  = pixels.Color(255, 0, 0); // Green for NeoPixel GRB
-const uint32_t NEO_COLOR_BLUE   = pixels.Color(0, 0, 255); // Blue for NeoPixel GRB
-const uint32_t NEO_COLOR_YELLOW = pixels.Color(255, 255, 0); // Yellow for NeoPixel GRB
-const uint32_t NEO_COLOR_WHITE  = pixels.Color(255, 255, 255); // White
+const uint32_t NEO_COLOR_RED    = pixels.Color(255, 0, 0); // 红色 (R,G,B)
+const uint32_t NEO_COLOR_GREEN  = pixels.Color(0, 255, 0); // 绿色 (R,G,B)
+const uint32_t NEO_COLOR_BLUE   = pixels.Color(0, 0, 255); // 蓝色 (R,G,B)
+const uint32_t NEO_COLOR_YELLOW = pixels.Color(255, 255, 0); // 黄色 (R,G,B)
+const uint32_t NEO_COLOR_WHITE  = pixels.Color(255, 255, 255); // 白色
 
-static bool neo_led_state_is_on = false; // For blinking logic in normal operation
+// static bool neo_led_state_is_on = false; // For blinking logic in normal operation - REMOVED
 
 const int PIN_I2C_SDA = 41;     // I2C SDA引脚 (OLED)
 const int PIN_I2C_SCL = 42;     // I2C SCL引脚 (OLED)
@@ -1114,7 +1114,7 @@ void performSystemReinitialization() {
     delay(250); // Show white briefly
     // The LED will then be updated by the main loop logic based on the new state (e.g., green or blue if calibration starts)
     // For blinking, ensure the static blink state variable is reset or starts appropriately
-    neo_led_state_is_on = false; // Start with LED off for the next blink cycle in normal mode
+    // neo_led_state_is_on = false; // Start with LED off for the next blink cycle in normal mode - REMOVED
 
     updateOledDisplay();
     if (ws_client_connected_flag) {
@@ -1214,16 +1214,28 @@ void loop() {
         handleHttpRequests(); 
     }
 
+    // --- LED State Update (Replaces all previous LED setting blocks) ---
+    if (infusion_abnormal) {
+        pixels.setPixelColor(0, NEO_COLOR_RED);     // 异常：红灯常亮
+    } else if (fast_convergence_mode) {
+        pixels.setPixelColor(0, NEO_COLOR_BLUE);    // 快速收敛：蓝灯常亮
+    } else {
+        // 正常输液（包括WPD校准、输液接近完成等其他非异常、非快速收敛的状态）
+        pixels.setPixelColor(0, NEO_COLOR_GREEN);   // 正常：绿灯常亮
+    }
+    pixels.show(); // 更新LED状态
+
     // --- Main processing logic OR Abnormal state handling ---
     if (infusion_abnormal) {
-        pixels.setPixelColor(0, NEO_COLOR_RED); // Solid Red for abnormal state
-        pixels.show();
-        // Main processing is skipped.
+        // LED已在上方处理.
+        // 主处理逻辑跳过.
         // If no network tasks are running (e.g. WiFi down), add a small delay to prevent tight loop.
         if (!wifi_connected_flag) {
             delay(100); 
         }
     } else { // Normal operation: run main sensor processing loop
+        // LED已在上方为正常/快速收敛状态处理.
+        
         // Calculate time delta for main loop
         float dt_main_loop_s = (current_time_ms - last_loop_run_ms) / 1000.0f;
 
@@ -1439,23 +1451,23 @@ void loop() {
             }
             // --- END OF EXISTING MAIN PROCESSING LOGIC ---
             
-            // --- NeoPixel LED Update for Normal Operation (blinking) ---
-            uint32_t base_color_for_blink;
-            if (system_initial_weight_set && g_infusion_progress >= 0.9f) { // Ensure progress is valid before using it
-                base_color_for_blink = NEO_COLOR_YELLOW;
-            } else if (drip_kf.isWpdCalibrating() || wpd_long_cal_active) {
-                base_color_for_blink = NEO_COLOR_BLUE;
-            } else {
-                base_color_for_blink = NEO_COLOR_GREEN;
-            }
+            // --- NeoPixel LED Update for Normal Operation (blinking) ---  REMOVED OLD LOGIC
+            // uint32_t base_color_for_blink;
+            // if (system_initial_weight_set && g_infusion_progress >= 0.9f) { // Ensure progress is valid before using it
+            //     base_color_for_blink = NEO_COLOR_YELLOW;
+            // } else if (drip_kf.isWpdCalibrating() || wpd_long_cal_active) {
+            //     base_color_for_blink = NEO_COLOR_BLUE;
+            // } else {
+            //     base_color_for_blink = NEO_COLOR_GREEN;
+            // }
 
-            neo_led_state_is_on = !neo_led_state_is_on; // Toggle state each MAIN_LOOP_INTERVAL
-            if (neo_led_state_is_on) {
-                pixels.setPixelColor(0, base_color_for_blink);
-            } else {
-                pixels.setPixelColor(0, NEO_COLOR_OFF); // Off part of the blink
-            }
-            pixels.show();
+            // neo_led_state_is_on = !neo_led_state_is_on; // Toggle state each MAIN_LOOP_INTERVAL
+            // if (neo_led_state_is_on) {
+            //     pixels.setPixelColor(0, base_color_for_blink);
+            // } else {
+            //     pixels.setPixelColor(0, NEO_COLOR_OFF); // Off part of the blink
+            // }
+            // pixels.show();
             // --- End NeoPixel LED Update ---
 
         } // End of if (dt_main_loop_s >= (MAIN_LOOP_INTERVAL_MS / 1000.0f))
