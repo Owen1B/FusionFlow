@@ -1,265 +1,298 @@
-// --- 标准库和第三方库引用 ---
-#include <WiFi.h>             // 用于WiFi连接
-#include <WiFiClient.h>       // 用于创建WiFi客户端 (HTTP Server会用到)
-#include <DNSServer.h>        // (WiFiServer有时可能间接需要，但此处不直接使用DNS功能)
-#include <WebSocketsServer.h> // 用于创建WebSocket服务器
+// ==========================
+// 1. 标准库和第三方库引用
+// ==========================
+#include <WiFi.h>                  // WiFi 连接
+#include <WiFiClient.h>            // WiFi 客户端
+#include <DNSServer.h>             // DNS 服务器
+#include <WebSocketsServer.h>      // WebSocket 服务器
+#include <Wire.h>                  // I2C 通讯
+#include <Adafruit_GFX.h>          // GFX 图形库
+#include <U8g2lib.h>               // OLED 驱动库
+#include <Adafruit_NeoPixel.h>     // NeoPixel RGB LED 库
+#include "HX711.h"                 // HX711 称重传感器库
 
-#include <Wire.h>             // 用于I2C通讯 (OLED显示屏)
-#include <Adafruit_GFX.h>     // GFX图形库 (U8g2可能间接依赖或共享某些概念)
-#include <U8g2lib.h>          // OLED显示屏驱动库
-#include <Adafruit_NeoPixel.h> // NeoPixel RGB LED 库
+// ==========================
+// 2. 自定义模块引用
+// ==========================
+#include "WeightKalmanFilter.h"    // 重量卡尔曼滤波器
+#include "DripKalmanFilter.h"      // 滴速卡尔曼滤波器
+#include "DataFusion.h"            // 数据融合模块
+#include "webpage.h"               // 网页内容
 
-#include "HX711.h"             // HX711称重传感器库
+// ==========================
+// 3. 函数声明
+// ==========================
 
-// --- 自定义模块引用 ---
-#include "WeightKalmanFilter.h" // 重量卡尔曼滤波器模块
-#include "DripKalmanFilter.h"   // 滴速卡尔曼滤波器模块
-#include "DataFusion.h"         // 数据融合模块
-#include "webpage.h"            // 网页
+// 滴落中断服务函数
+void IRAM_ATTR onWaterDropIsr();
 
-// --- WiFi 配置 ---
-const char* WIFI_SSID = "1503"; // 您的WiFi SSID
-const char* WIFI_PASS = "18310007230"; // 您的WiFi密码
-// const char* WIFI_SSID = "三井寿的iPhone13"; // 您的WiFi SSID
-// const char* WIFI_PASS = "12345678"; // 您的WiFi密码
-bool wifi_connected_flag = false;
+// 滴落时间戳队列操作函数
+bool getNextDripTimestamp(unsigned long& ts);
+int getTimestampQueueSize();
 
-// --- WebSocket 服务器配置 ---
-WebSocketsServer ws_server = WebSocketsServer(81); // WebSocket 服务器监听81端口
-bool ws_client_connected_flag = false; // 标记是否有WebSocket客户端连接
-// --- Infusion Abnormality Detection ---
-bool infusion_abnormal = false;
-volatile unsigned long last_drip_detected_time_ms = 0; // Updated in ISR, stores millis() of last detected drip
-const unsigned long MAX_NO_DRIP_INTERVAL_MS = 10000; // 10 seconds threshold for no drip
-const int PIN_ABNORMALITY_RESET_BUTTON = 39; // GPIO pin for abnormality reset button
-int last_abnormality_reset_button_state = HIGH; // Assuming INPUT_PULLUP
-unsigned long last_abnormality_reset_button_press_time = 0;
-const unsigned long ABNORMALITY_RESET_BUTTON_DEBOUNCE_MS = 200; // Debounce time for reset button
+// WebSocket事件回调函数
+void onWebSocketEvent(uint8_t clientNum, WStype_t type, uint8_t * payload, size_t length);
 
-// --- HTTP 服务器配置 ---
-WiFiServer http_server(80); // HTTP服务器监听80端口
+// OLED显示更新函数
+void updateOledDisplay();
 
-// --- 硬件引脚定义 ---
-const int PIN_WATER_SENSOR = 11; // 水滴传感器引脚
-#define NEOPIXEL_PIN 48        // NeoPixel LED 数据引脚
-#define NEOPIXEL_BRIGHTNESS 50 // NeoPixel 亮度 (0-255)
-Adafruit_NeoPixel pixels(1, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800); // 单个 NeoPixel 对象
+// WiFi连接处理函数
+void connectToWiFi();
 
-// NeoPixel 颜色定义 (GRB format)
-const uint32_t NEO_COLOR_OFF    = pixels.Color(0, 0, 0);
-const uint32_t NEO_COLOR_RED    = pixels.Color(255, 0, 0); // 红色 (R,G,B)
-const uint32_t NEO_COLOR_GREEN  = pixels.Color(0, 255, 0); // 绿色 (R,G,B)
-const uint32_t NEO_COLOR_BLUE   = pixels.Color(0, 0, 255); // 蓝色 (R,G,B)
-const uint32_t NEO_COLOR_YELLOW = pixels.Color(255, 255, 0); // 黄色 (R,G,B)
-const uint32_t NEO_COLOR_WHITE  = pixels.Color(255, 255, 255); // 白色
+// HTTP请求处理函数
+void handleHttpRequests();
 
-// static bool neo_led_state_is_on = false; // For blinking logic in normal operation - REMOVED
+// 剩余时间计算函数
+float calculate_specific_remaining_time(float current_liquid_weight, float target_empty_ref_weight, 
+                                      float current_flow_rate_gps, float undefined_time_value = 88888.0f);
 
-const int PIN_I2C_SDA = 41;     // I2C SDA引脚 (OLED)
-const int PIN_I2C_SCL = 42;     // I2C SCL引脚 (OLED)
-const int PIN_HX711_DT = 17;    // HX711 数据引脚
-const int PIN_HX711_SCK = 18;   // HX711 时钟引脚
-const int PIN_INIT_BUTTON = 40;  // 初始化按钮引脚 (GPIO40)
+// 系统重新初始化函数
+void performSystemReinitialization();
 
-// --- 新增：时间戳队列相关定义 ---
-const int MAX_TIMESTAMP_QUEUE_SIZE = 20; // 队列最大容量改为3，保留最近3个时间戳
-unsigned long drip_timestamps_ms[MAX_TIMESTAMP_QUEUE_SIZE]; // 时间戳队列
-volatile int timestamp_queue_head = 0; // 队列头指针
-volatile int timestamp_queue_tail = 0; // 队列尾指针
+// 主循环相关函数声明
+void handleButtonInputs(unsigned long current_time_ms);
+void checkInfusionAbnormality(unsigned long current_time_ms);
+void handleFastConvergenceMode(unsigned long current_time_ms);
+void updateLedStatus();
+void handleMainProcessing(unsigned long current_time_ms);
+void handleWeightSensor();
+void handleDripRate(float dt_main_loop_s);
+void handleDataFusion(float dt_main_loop_s);
+void handleWpdLongCalibration();
+void calculateRemainingTime();
+void updateDisplay();
+void outputData(unsigned long current_time_ms);
+
+// ==========================
+// 4. 配置参数
+// ==========================
+
+// 系统状态定义
+enum class SystemState {
+    INITIALIZING,    // 初始化中
+    INIT_ERROR,      // 初始化异常
+    NORMAL,          // 正常运行
+    INFUSION_ERROR,  // 输液异常
+    FAST_CONVERGENCE // 快速收敛模式
+};
+
+// WiFi配置
+constexpr const char* WIFI_SSID  = "1503";           // WiFi SSID
+constexpr const char* WIFI_PASS  = "18310007230";    // WiFi 密码
+
+// 服务器配置
+constexpr uint16_t WEBSOCKET_PORT = 81;              // WebSocket 服务器端口
+constexpr uint16_t HTTP_PORT = 80;                   // HTTP 服务器端口
+
+// 异常检测配置
+constexpr unsigned long MAX_NO_DRIP_INTERVAL_MS = 10000;   // 无滴落最大间隔（10秒）
+constexpr int PIN_ABNORMALITY_RESET_BUTTON = 39;           // 异常复位按钮 GPIO
+constexpr unsigned long ABNORMALITY_RESET_BUTTON_DEBOUNCE_MS = 200; // 按钮去抖时间
+
+// 硬件引脚配置
+constexpr int PIN_WATER_SENSOR   = 11;         // 水滴传感器引脚
+constexpr int NEOPIXEL_PIN       = 48;         // NeoPixel 数据引脚
+constexpr int NEOPIXEL_BRIGHTNESS = 50;        // NeoPixel 亮度（0-255）
+constexpr int PIN_I2C_SDA        = 41;         // I2C SDA 引脚（OLED）
+constexpr int PIN_I2C_SCL        = 42;         // I2C SCL 引脚（OLED）
+constexpr int PIN_HX711_DT       = 17;         // HX711 数据引脚
+constexpr int PIN_HX711_SCK      = 18;         // HX711 时钟引脚
+constexpr int PIN_INIT_BUTTON    = 40;         // 初始化按钮引脚
+
+// NeoPixel 颜色配置（GRB 格式）
+#define NEO_COLOR_OFF     pixels.Color(0,   0,   0)     // 关闭
+#define NEO_COLOR_RED     pixels.Color(255, 0,   0)     // 红色
+#define NEO_COLOR_GREEN   pixels.Color(0,   255, 0)     // 绿色
+#define NEO_COLOR_BLUE    pixels.Color(0,   0,   255)   // 蓝色
+#define NEO_COLOR_YELLOW  pixels.Color(255, 255, 0)     // 黄色
+#define NEO_COLOR_WHITE   pixels.Color(255, 255, 255)   // 白色
+
+// 滴速时间戳队列配置
+constexpr int MAX_TIMESTAMP_QUEUE_SIZE = 20;                // 时间戳队列最大容量
+
+// HX711 重量传感器配置
+float hx711_cal_factor = 1687.0f;                           // HX711 校准因子
+
+// OLED 显示屏配置
+constexpr int OLED_WIDTH  = 128;                            // OLED 宽度（像素）
+constexpr int OLED_HEIGHT = 32;                             // OLED 高度（像素）
+
+// 卡尔曼滤波器参数配置
+constexpr float KF_WEIGHT_SIGMA_A  = 0.0005f;               // 重量 KF 过程噪声（速度）
+constexpr float KF_WEIGHT_SIGMA_J  = 1e-6f;                 // 重量 KF 过程噪声（加速度）
+constexpr float KF_WEIGHT_R_NOISE  = 50.0f;                 // 重量 KF 测量噪声
+
+// 滴速 KF 参数
+constexpr float DRIP_KF_SIGMA_A  = 0.00001f;                // 滴速 KF 过程噪声
+constexpr float DRIP_KF_R        = 0.05f;                   // 滴速 KF 测量噪声
+constexpr float DRIP_KF_WPD_Q    = 0.00000001f;             // 滴速 KF WPD 过程噪声
+constexpr float DRIP_KF_WPD_R    = 0.0001f;                 // 滴速 KF WPD 测量噪声
+
+// 数据融合参数
+constexpr float FUSION_Q_FLOW           = 0.0000001f;       // 融合流速过程噪声
+constexpr float FUSION_R_WEIGHT_FLOW    = 0.01f;            // 融合重量流速测量噪声
+constexpr float FUSION_R_DRIP_FLOW      = 0.0005f;          // 融合滴速流速测量噪声
+constexpr float FUSION_Q_WEIGHT         = 0.01f;            // 融合重量过程噪声
+constexpr float FUSION_R_WEIGHT_WEIGHT  = 1.0f;             // 融合重量测量噪声
+constexpr float FUSION_R_DRIP_WEIGHT    = 1.0f;             // 融合滴速重量测量噪声
+
+// 主循环与定时相关配置
+constexpr unsigned long MAIN_LOOP_INTERVAL_MS         = 1000;   // 主循环周期（ms）
+constexpr unsigned long INIT_BUTTON_DEBOUNCE_MS      = 200;    // 初始化按钮去抖时间
+constexpr unsigned long FAST_CONVERGENCE_DURATION_MS = 60000;  // 快速收敛时长
+
+// WPD 长时间校准配置
+constexpr unsigned long WPD_LONG_CAL_DURATION_MS = 60000;       // WPD 长时间校准目标时长（ms）
+constexpr int WPD_LONG_CAL_MIN_DROPS   = 30;                    // WPD 长时间校准最小滴数
+
+// 目标相关配置
+float target_empty_weight_g = 70.0f;                            // 目标空袋重量（g）
+constexpr unsigned long DEFAULT_TARGET_TOTAL_DROPS_VOLUME_CALC = 100; // 默认目标滴数
+
+// 系统参数
+constexpr unsigned long ABNORMALITY_CHECK_INTERVAL_MS = 10000; // 输液异常检测间隔（10秒）
+constexpr unsigned long NO_DRIP_TIMEOUT_MS = 10000;           // 无滴落超时时间（10秒）
+
+// ==========================
+// 5. 全局变量
+// ==========================
+
+// 网络与连接状态
+bool wifi_connected_flag = false;      // WiFi 连接标志
+bool ws_client_connected_flag = false; // WebSocket 客户端连接标志
+
+// 服务器对象
+WiFiServer http_server(HTTP_PORT);     // HTTP 服务器对象
+WebSocketsServer ws_server(WEBSOCKET_PORT); // WebSocket 服务器对象
+
+// 外设对象
+Adafruit_NeoPixel pixels(1, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800); // NeoPixel 对象
+U8G2_SSD1306_128X32_UNIVISION_F_HW_I2C oled_display(U8G2_R0, U8X8_PIN_NONE); // OLED 对象
+HX711 scale_sensor;                    // HX711 对象
+
+// 滴速时间戳队列
+unsigned long drip_timestamps_ms[MAX_TIMESTAMP_QUEUE_SIZE]; // 滴落时间戳队列
+volatile int timestamp_queue_head = 0;     // 队列头指针
+volatile int timestamp_queue_tail = 0;     // 队列尾指针
 volatile bool timestamp_queue_full = false; // 队列满标志
 
-// --- HX711 配置 ---
-// !! 重要: 此校准因子必须根据您的HX711模块和称重传感器进行实际校准 !!
-// !! 它直接影响重量读数的准确性。常见的校准方法是使用已知重量的物体。!!
-float hx711_cal_factor = 1687.0f; // 示例校准因子，请务必重新校准!
-HX711 scale_sensor; // HX711传感器对象
+// 卡尔曼滤波器与数据融合对象
+WeightKalmanFilter weight_kf(KF_WEIGHT_SIGMA_A, KF_WEIGHT_SIGMA_J, KF_WEIGHT_R_NOISE);
+DripKalmanFilter drip_kf(DRIP_KF_SIGMA_A, DRIP_KF_R, DRIP_KF_WPD_Q, DRIP_KF_WPD_R);
+DataFusion flow_fusion(FUSION_Q_FLOW, FUSION_R_WEIGHT_FLOW, FUSION_R_DRIP_FLOW,
+                      FUSION_Q_WEIGHT, FUSION_R_WEIGHT_WEIGHT, FUSION_R_DRIP_WEIGHT);
 
-// --- OLED 显示屏配置 ---
-#define OLED_WIDTH 128 // OLED宽度（像素）
-#define OLED_HEIGHT 32 // OLED高度（像素）
-// U8g2库的OLED驱动对象 (SSD1306, 128x32, I2C通讯)
-U8G2_SSD1306_128X32_UNIVISION_F_HW_I2C oled_display(U8G2_R0, U8X8_PIN_NONE);
+// 滴速传感器中断相关
+volatile unsigned long isr_drop_count_period = 0;     // ISR 周期内累计滴数
+volatile unsigned long isr_last_drop_time_ms = 0;     // ISR 上次滴落时间戳
+volatile unsigned long last_drip_detected_time_ms = 0; // 上次检测到滴落的时间戳
+volatile unsigned long last_abnormality_check_time_ms = 0; // 上次异常检测时间戳
 
-// -----------------------------------
-// --- 卡尔曼滤波器和数据融合对象实例化 ---
-// -----------------------------------
+// 异常检测与复位按钮状态
+bool infusion_abnormal = false;                       // 输液异常标志
+int last_abnormality_reset_button_state = HIGH;       // 上次按钮状态
+unsigned long last_abnormality_reset_button_press_time = 0; // 上次按钮按下时间
 
-// 参数调整指南:
-// WeightKalmanFilter(sigma_a, R_sensor_noise)
-//   sigma_a (过程噪声标准差 for 速度): 0.001-0.05 范围内调整。
-//     - 较小值(0.001-0.005): 速度估计非常平滑，但对真实速度变化响应较慢，适合稳定流速场景
-//     - 中等值(0.005-0.02): 平衡了平滑性和响应性，适合大多数场景
-//     - 较大值(0.02-0.05): 对速度变化响应快，但可能引入更多噪声，适合流速频繁变化场景
-//   R_sensor_noise (测量噪声方差 for 重量): 若原始重量读数标准差为s，则R约为s*s。
-//     - 较小值(0.1-0.5): 更信任传感器读数，适合高精度传感器或稳定环境
-//     - 中等值(0.5-2.0): 适合一般场景下的传感器
-//     - 较大值(2.0-10.0): 传感器噪声大或存在频繁尖峰时使用，减少异常值影响
-const float KF_WEIGHT_SIGMA_A = 0.0005f; // 过程噪声标准差 (影响速度估计) - 对应Python脚本中的 weight_sigma_a
-const float KF_WEIGHT_SIGMA_J = 1e-6f;   // 过程噪声标准差 (影响加速度估计) - 对应Python脚本中的 weight_sigma_j
-const float KF_WEIGHT_R_NOISE = 50.0f;  // 重量测量噪声方差 - 对应Python脚本中的 weight_R
-WeightKalmanFilter weight_kf(KF_WEIGHT_SIGMA_A, KF_WEIGHT_SIGMA_J, KF_WEIGHT_R_NOISE); // 旧的构造函数调用
+// 主循环与定时相关
+unsigned long last_loop_run_ms = 0;                   // 上次主循环时间戳
+unsigned long last_calc_time_ms = millis();           // 上次计算时间
+unsigned long last_serial_print_time_ms = millis();   // 上次串口打印时间
+unsigned long last_drip_count_update_time_ms = millis(); // 上次滴数更新时间
+unsigned long last_button_check_time_ms = millis();   // 上次按钮检测时间
 
-// DripKalmanFilter(drip_rate_sigma_a, drip_rate_R, wpd_Q, wpd_R)
-//   drip_rate_sigma_a (滴速变化加速度标准差): 0.01-0.2 范围内调整。
-//     - 较小值(0.01-0.05): 滴速估计更平滑，适合稳定滴速场景
-//     - 中等值(0.05-0.1): 平衡了平滑性和响应性
-//     - 较大值(0.1-0.2): 对滴速变化响应更快，适合滴速频繁变化场景
-//   drip_rate_R (滴速测量方差): 1.0-10.0 范围内调整。
-//     - 较小值(1.0-2.0): 更信任原始滴速计算，适合稳定的滴速传感器
-//     - 中等值(2.0-5.0): 适合一般场景
-//     - 较大值(5.0-10.0): 滴速传感器不稳定或存在误触发时使用
-//   wpd_Q (WPD过程噪声方差): 0.000001-0.0001 范围内调整。
-//     - 通常应设置很小(0.000001-0.00001)，因为每滴重量理论上应相对稳定
-//     - 中等值(0.00001-0.00005): 适合大多数场景
-//     - 较大值(0.00005-0.0001): 使WPD校准更快适应变化，但可能引入不稳定性
-//   wpd_R (WPD测量噪声方差): 0.00001-0.001 范围内调整。
-//     - 较小值(0.00001-0.0001): 更信任单次校准测量
-//     - 中等值(0.0001-0.0005): 适合大多数场景
-//     - 较大值(0.0005-0.001): 减少单次异常测量的影响，校准过程更平滑
-DripKalmanFilter drip_kf(0.00001f, 0.05, 0.00000001f, 0.0001f); // 修改 WPD_R_noise
+// 初始化按钮与快速收敛相关
+unsigned long last_init_button_press_time = 0;        // 上次初始化按钮按下时间
+int last_init_button_state = HIGH;                    // 上次初始化按钮状态
+bool fast_convergence_mode = false;                   // 快速收敛模式标志
+unsigned long fast_convergence_start_ms = 0;          // 快速收敛开始时间
+float original_kf_weight_R_noise = KF_WEIGHT_R_NOISE; // KF 原始 R 值备份
 
-// DataFusion(q_flow, r_weight_flow, r_drip_flow, q_weight, r_weight_weight, r_drip_weight)
-//   q_flow (流速过程噪声方差): 0.00001-0.001 范围内调整。
-//     - 较小值(0.00001-0.0001): 融合后流速更平滑，但对真实变化响应慢
-//     - 中等值(0.0001-0.0005): 适合大多数场景
-//     - 较大值(0.0005-0.001): 对流速变化响应更快，但可能保留更多噪声
-//   r_weight_flow/r_drip_flow (流速测量噪声方差): 0.001-0.01 范围内调整。
-//     - 这两个参数的相对大小决定了对两种传感器的信任度
-//     - 若r_weight_flow < r_drip_flow: 更信任重量传感器的流速测量
-//     - 若r_weight_flow > r_drip_flow: 更信任滴速传感器的流速测量
-//     - 若两者相等: 平等对待两种传感器的测量
-//   q_weight (重量过程噪声方差): 0.001-0.1 范围内调整。
-//     - 较小值(0.001-0.01): 融合后重量估计更平滑，适合稳定场景
-//     - 中等值(0.01-0.05): 适合大多数场景
-//     - 较大值(0.05-0.1): 对重量变化响应更快，适合重量快速变化场景
-//   r_weight_weight/r_drip_weight (重量测量噪声方差): 0.1-10.0 范围内调整。
-//     - 这两个参数的相对大小决定了对两种传感器重量估计的信任度
-//     - 通常r_weight_weight(0.5-2.0) < r_drip_weight(1.0-5.0)，因为重量传感器直接测量重量，而滴速传感器是间接估计
-DataFusion flow_fusion(0.0000001f, 0.01f, 0.0005f, 0.01f, 1.0f, 1.0f); // Updated constructor
+// 滴速与重量相关全局变量
+float accumulated_weight_change_for_wpd_g = 0.0f;     // 滴速 KF 更新以来累计重量变化
+unsigned int drops_this_drip_cycle = 0;               // 当前滴速周期内滴数
+float raw_weight_g = 0.0f;                           // HX711 原始重量（g）
+float prev_raw_weight_g = 0.0f;                      // 上周期原始重量（g）
+float filt_weight_g = 0.0f;                          // 卡尔曼滤波后重量（g）
+float prev_filt_weight_g = 0.0f;                     // 上周期滤波后重量（g）
+float flow_weight_gps = 0.0f;                        // 重量传感器估算流速（g/s）
+float raw_flow_weight_gps = 0.0f;                    // 原始重量估算流速（g/s）
+float raw_drip_rate_dps = 0.0f;                      // 原始滴速（滴/秒）
+float filt_drip_rate_dps = 0.0f;                     // 卡尔曼滤波后滴速（滴/秒）
+float flow_drip_gps = 0.0f;                          // 滴速传感器估算流速（g/s）
+float raw_flow_drip_gps = 0.0f;                      // 原始滴速估算流速（g/s）
+float fused_flow_rate_gps = 0.0f;                    // 融合后流速（g/s）
+float fused_remaining_weight_g = 0.0f;               // 融合后剩余重量（g）
+float remaining_weight_drip_calc_g = 0.0f;           // 滴速计算剩余重量（g）
 
-// -----------------------------------
-// ----------- 全局状态变量 ------------
-// -----------------------------------
+// 剩余时间与目标相关全局变量
+float remaining_time_s = 0.0f;                       // 预计剩余输液时间（s）
+float remaining_time_raw_weight_s = 0.0f;            // 原始重量流速剩余时间
+float remaining_time_filt_weight_s = 0.0f;           // 滤波后重量流速剩余时间
+float remaining_time_raw_drip_s = 0.0f;              // 原始滴速流速剩余时间
+float remaining_time_filt_drip_s = 0.0f;             // 滤波后滴速流速剩余时间
 
-// ISR (中断服务程序) 中使用的变量必须声明为 volatile
-volatile unsigned long isr_drop_count_period = 0; // ISR 在一个主循环周期内累计的滴数
-volatile unsigned long isr_last_drop_time_ms = 0; // ISR 中记录的上一滴发生的时间戳 (ms)
+// WPD 长时间校准相关全局变量
+bool wpd_long_cal_active = false;                    // WPD 长时间校准激活标志
+unsigned long wpd_long_cal_start_ms = 0;             // WPD 长时间校准开始时间
+int wpd_long_cal_accum_drops = 0;                    // WPD 长时间校准累计滴数
 
-// 主循环定时
-const unsigned long MAIN_LOOP_INTERVAL_MS = 1000; // 主循环更新周期 (10 秒)
-unsigned long last_loop_run_ms = 0; // 上次主循环运行的时间戳 (ms)
+// 系统级初始重量与报警相关全局变量
+bool system_initial_weight_set = false;              // 系统初始重量已设置标志
+float system_initial_total_liquid_weight_g = 0.0f;   // 系统初始总液体重量
+bool alert_5_percent_triggered = false;              // 5% 报警已触发标志
 
-// 滴速传感器更新定时
-// const unsigned long DRIP_SENSOR_UPDATE_INTERVAL_MS = 10000; // 滴速传感器更新周期 (例如: 10 秒)
-// unsigned long last_drip_sensor_update_ms = 0; // 上次滴速传感器更新的时间戳 (ms)
-float accumulated_weight_change_for_wpd_g = 0.0f; // 自上次滴速KF更新以来累计的重量变化 (g)
+// 统计与计数相关全局变量
+unsigned long drip_total_drops = 0;                  // 总滴数
 
-// 数据变量 (g: 克, s: 秒, dps: 滴/秒, gps: 克/秒, ms: 毫秒, mlh: 毫升/小时)
-float raw_weight_g = 0.0f;            // HX711原始重量读数 (g)
-float prev_raw_weight_g = 0.0f;       // 上一周期原始重量 (g) (用于计算原始重量流速)
-float filt_weight_g = 0.0f;           // 卡尔曼滤波后的重量 (g)
-float prev_filt_weight_g = 0.0f;      // 上一周期滤波后的重量 (g) (主循环周期)
-float flow_weight_gps = 0.0f;         // 从重量传感器估算的流速 (g/s, 正值表示消耗)
-float raw_flow_weight_gps = 0.0f;     // 从原始重量传感器估算的流速 (g/s)
-
-unsigned int drops_this_drip_cycle = 0;  // 当前滴速更新周期内检测到的总滴数
-float raw_drip_rate_dps = 0.0f;     // 由原始滴数计算的滴速 (dps) (基于长周期)
-float filt_drip_rate_dps = 0.0f;    // 滴速卡尔曼滤波后的滴速 (dps)
-float flow_drip_gps = 0.0f;           // 从滴速传感器估算的流速 (g/s)
-float raw_flow_drip_gps = 0.0f;       // 从原始滴速传感器估算的流速 (g/s)
-
-float fused_flow_rate_gps = 0.0f;     // 融合后的最终流速 (g/s)
-float fused_remaining_weight_g = 0.0f; // 新增: 融合后的剩余重量 (g)
-float remaining_weight_drip_calc_g = 0.0f; // 新增: 通过滴速计算的剩余重量 (g)
-
-float remaining_time_s = 0.0f;        // 预计剩余输液时间 (秒) - 基于融合后的值和目标空重
-float target_empty_weight_g = 70.0f; // 目标空袋重量 (g), 用于判断输液接近完成
-                                
-float remaining_time_raw_weight_s = 0.0f;  // 基于原始重量流速的剩余时间
-float remaining_time_filt_weight_s = 0.0f; // 基于滤波后重量流速的剩余时间
-float remaining_time_raw_drip_s = 0.0f;    // 基于原始滴速流速的剩余时间
-float remaining_time_filt_drip_s = 0.0f;   // 基于滤波后滴速流速的剩余时间
-
-// --- WPD 长时间校准相关变量 ---
-bool wpd_long_cal_active = false;          // 标记是否正在进行WPD的长时间校准
-unsigned long wpd_long_cal_start_ms = 0;   // WPD长时间校准的开始时间戳 (ms)
-const unsigned long WPD_LONG_CAL_DURATION_MS = 60000; // WPD长时间校准的目标时长 (例如: 60秒)
-int wpd_long_cal_accum_drops = 0;       // WPD长时间校准期间累计的总滴数
-const int WPD_LONG_CAL_MIN_DROPS = 30;   // WPD长时间校准期间要求的最小累计滴数 (确保数据量)
-                                      
-// --- 新增系统级初始重量相关变量 ---
-bool system_initial_weight_set = false;
-float system_initial_total_liquid_weight_g = 0.0f;
-bool alert_5_percent_triggered = false;
-
-// --- 初始化按钮和快速收敛相关变量 ---
-unsigned long last_init_button_press_time = 0;
-const unsigned long INIT_BUTTON_DEBOUNCE_MS = 200; // 按钮去抖时间
-int last_init_button_state = HIGH;             // 假设上拉，按下为LOW
-bool fast_convergence_mode = false;
-unsigned long fast_convergence_start_ms = 0;
-float original_kf_weight_R_noise = KF_WEIGHT_R_NOISE; // 在setup中会被正确初始化
-const unsigned long FAST_CONVERGENCE_DURATION_MS = 60000;
-
-unsigned long drip_total_drops = 0;
-unsigned long last_calc_time_ms = millis();
-unsigned long last_serial_print_time_ms = millis();
-unsigned long last_drip_count_update_time_ms = millis();
-unsigned long last_button_check_time_ms = millis();
-
-// 新增: DripKalmanFilter 原始R值备份
-static float original_drip_kf_R_drip_rate_noise = 0.0f;
-static float original_drip_kf_R_wpd_noise = 0.0f;
-
-// 新增: DataFusion 原始R值备份
-static float original_fusion_R_weight_flow = 0.0f;
+// 滤波器参数备份全局变量
+static float original_drip_kf_R_drip_rate_noise = 0.0f;  // DripKalmanFilter 原始 R 值备份
+static float original_drip_kf_R_wpd_noise = 0.0f;        // DripKalmanFilter 原始 WPD 噪声备份
+static float original_fusion_R_weight_flow = 0.0f;       // DataFusion 原始 R 值备份
 static float original_fusion_R_drip_flow = 0.0f;
 static float original_fusion_R_weight_weight = 0.0f;
 static float original_fusion_R_drip_weight = 0.0f;
 
-// 新增: WebSocket JS 使用的常量
-const unsigned long DEFAULT_TARGET_TOTAL_DROPS_VOLUME_CALC = 100; // 用于JS客户端的默认目标滴数参考值
+// OLED 显示与全局状态
+float g_infusion_progress = 0.0f;                    // 输液进度（0.0~1.0）
+float g_oled_infused_progress_percent = 0.0f;        // OLED 显示百分比（0~100）
+float g_oled_flow_rate_mlh = 0.0f;                   // OLED 显示流速（mL/h）
+long g_oled_remaining_time_min = -1;                 // OLED 显示剩余分钟数（-1 为无）
 
-// 新增: 用于OLED显示和内部逻辑的全局状态值
-float g_infusion_progress = 0.0f;                // 输液进度 (范围 0.0 到 1.0)
-float g_oled_infused_progress_percent = 0.0f;    // OLED显示的输液百分比 (范围 0.0 到 100.0)
-float g_oled_flow_rate_mlh = 0.0f;               // OLED显示的流速 (mL/h)
-long  g_oled_remaining_time_min = -1;            // OLED显示的剩余分钟数 (-1 代表 "---")
-// filt_weight_g 已经是全局变量，并将直接用于OLED显示
+// 系统状态
+SystemState current_system_state = SystemState::INITIALIZING;  // 当前系统状态
 
-// -----------------------------------
-// ------ 中断服务函数 (ISR) -----------
-// -----------------------------------
-// 当水滴传感器检测到滴落 (引脚电平上升) 时触发此函数
+// ==========================
+// 6. 函数实现
+// ==========================
+
+// 滴落中断服务函数
 void IRAM_ATTR onWaterDropIsr() {
-    unsigned long now_ms = millis();
-    // 简单的消抖逻辑：确保两次中断之间有最小间隔，防止传感器抖动或噪声误触发
-    if (now_ms - isr_last_drop_time_ms > 50) { 
-        // 将时间戳加入队列
-        int next_tail = (timestamp_queue_tail + 1) % MAX_TIMESTAMP_QUEUE_SIZE;
-        if (next_tail != timestamp_queue_head || !timestamp_queue_full) {
-            drip_timestamps_ms[timestamp_queue_tail] = now_ms;
-            timestamp_queue_tail = next_tail;
+    unsigned long now = millis();
+    // 消抖：两次滴落间隔需大于50ms
+    if (now - isr_last_drop_time_ms > 50) {
+        int nextTail = (timestamp_queue_tail + 1) % MAX_TIMESTAMP_QUEUE_SIZE;
+        if (nextTail != timestamp_queue_head || !timestamp_queue_full) {
+            drip_timestamps_ms[timestamp_queue_tail] = now;
+            timestamp_queue_tail = nextTail;
             timestamp_queue_full = (timestamp_queue_tail == timestamp_queue_head);
         }
-        isr_last_drop_time_ms = now_ms;
-        last_drip_detected_time_ms = now_ms; // Update global last drip detected time
+        isr_last_drop_time_ms = now;
+        last_drip_detected_time_ms = now;
     }
 }
 
-// --- 新增：从队列中获取时间戳的函数 ---
-bool getNextDripTimestamp(unsigned long& timestamp) {
+// 从队列中取出下一个滴落时间戳
+bool getNextDripTimestamp(unsigned long& ts) {
     if (timestamp_queue_head == timestamp_queue_tail && !timestamp_queue_full) {
-        return false; // 队列为空
+        return false;
     }
-    
-    timestamp = drip_timestamps_ms[timestamp_queue_head];
+    ts = drip_timestamps_ms[timestamp_queue_head];
     timestamp_queue_head = (timestamp_queue_head + 1) % MAX_TIMESTAMP_QUEUE_SIZE;
     timestamp_queue_full = false;
     return true;
 }
 
-// --- 新增：获取队列中时间戳数量的函数 ---
+// 获取队列中当前滴落时间戳数量
 int getTimestampQueueSize() {
     if (timestamp_queue_full) {
         return MAX_TIMESTAMP_QUEUE_SIZE;
@@ -267,114 +300,100 @@ int getTimestampQueueSize() {
     return (timestamp_queue_tail - timestamp_queue_head + MAX_TIMESTAMP_QUEUE_SIZE) % MAX_TIMESTAMP_QUEUE_SIZE;
 }
 
-// -----------------------------------
-// --- WebSocket 事件处理回调函数--------
-// -----------------------------------
-void onWebSocketEvent(uint8_t client_num, WStype_t type, uint8_t * payload, size_t length) {
+// WebSocket事件处理
+void onWebSocketEvent(uint8_t clientNum, WStype_t type, uint8_t * payload, size_t length) {
     switch(type) {
-        case WStype_DISCONNECTED: 
-            if (client_num == 0) ws_client_connected_flag = false; // Assuming client_num 0 is the primary one we track
-            Serial.printf("[%u] WebSocket客户端断开连接!\n", client_num);
+        case WStype_DISCONNECTED:
+            if (clientNum == 0) ws_client_connected_flag = false;
+            Serial.printf("[%u] WebSocket客户端断开连接!\n", clientNum);
             break;
-        case WStype_CONNECTED: { 
-            IPAddress client_ip = ws_server.remoteIP(client_num);
-            Serial.printf("[%u] WebSocket客户端已连接，IP: %s\n", client_num, client_ip.toString().c_str());
-            if (client_num == 0) ws_client_connected_flag = true;
-            // Don't send HTML_WEBPAGE here directly, client should request it via HTTP GET
-            // ws_server.sendTXT(client_num, "Connected to ESP32 WebSocket"); // Optional: send a welcome
+            
+        case WStype_CONNECTED: {
+            IPAddress ip = ws_server.remoteIP(clientNum);
+            Serial.printf("[%u] WebSocket客户端已连接，IP: %s\n", clientNum, ip.toString().c_str());
+            if (clientNum == 0) ws_client_connected_flag = true;
             break;
         }
-        case WStype_TEXT: 
-            Serial.printf("[%u] 收到文本: %s\n", client_num, payload);
+        
+        case WStype_TEXT:
+            Serial.printf("[%u] 收到文本: %s\n", clientNum, payload);
             if (strcmp((char*)payload, "CALIBRATE_WPD_START") == 0) {
                 if (wpd_long_cal_active) {
                     Serial.println("WPD校准已在进行中。");
-                    ws_server.sendTXT(client_num, "EVENT:WPD_CALIBRATION_ALREADY_RUNNING");
+                    ws_server.sendTXT(clientNum, "EVENT:WPD_CALIBRATION_ALREADY_RUNNING");
                 } else {
                     Serial.println("收到WPD校准开始命令，启动长时校准...");
-                    drip_kf.startWpdCalibration(); // 通知DripKalmanFilter开始接收WPD更新
+                    drip_kf.startWpdCalibration();
                     wpd_long_cal_active = true;
                     wpd_long_cal_start_ms = millis();
                     wpd_long_cal_accum_drops = 0;
-                    ws_server.sendTXT(client_num, "CMD_ACK:WPD_LONG_CALIBRATION_STARTED");
+                    ws_server.sendTXT(clientNum, "CMD_ACK:WPD_LONG_CALIBRATION_STARTED");
                 }
             } else if (strcmp((char*)payload, "CALIBRATE_WPD_STOP") == 0) {
                 if (wpd_long_cal_active) {
                     Serial.println("收到WPD校准手动停止命令...");
-                    drip_kf.stopWpdCalibration(); // DripKalmanFilter停止WPD更新模式
+                    drip_kf.stopWpdCalibration();
                     wpd_long_cal_active = false;
-                    float current_wpd = drip_kf.getCalibratedWeightPerDrop();
-                    char stop_msg[100];
-                    snprintf(stop_msg, sizeof(stop_msg), "CMD_ACK:WPD_CALIBRATION_STOPPED_MANUALLY,CurrentWPD:%.4f", current_wpd);
-                    ws_server.sendTXT(client_num, stop_msg);
-                    Serial.printf("WPD校准手动停止。当前WPD: %.4f g/drip\n", current_wpd);
+                    float wpd = drip_kf.getCalibratedWeightPerDrop();
+                    char msg[100];
+                    snprintf(msg, sizeof(msg), "CMD_ACK:WPD_CALIBRATION_STOPPED_MANUALLY,CurrentWPD:%.4f", wpd);
+                    ws_server.sendTXT(clientNum, msg);
+                    Serial.printf("WPD校准手动停止。当前WPD: %.4f g/drip\n", wpd);
                 } else {
                     Serial.println("WPD校准未在进行中，无需停止。");
-                    ws_server.sendTXT(client_num, "EVENT:WPD_CALIBRATION_NOT_RUNNING");
+                    ws_server.sendTXT(clientNum, "EVENT:WPD_CALIBRATION_NOT_RUNNING");
                 }
             } else {
-                ws_server.sendTXT(client_num, "CMD_UNKNOWN");
+                ws_server.sendTXT(clientNum, "CMD_UNKNOWN");
             }
             break;
-        case WStype_BIN: 
-            Serial.printf("[%u] 收到二进制数据，长度: %u\n", client_num, length);
+            
+        case WStype_BIN:
+            Serial.printf("[%u] 收到二进制数据，长度: %u\n", clientNum, length);
             break;
+            
         default:
             break;
     }
 }
 
-// -----------------------------------
-// -------- OLED 显示更新函数 ----------
-// -----------------------------------
-// void updateOledDisplay(float infused_progress_percent, float current_display_weight_g, float current_flow_rate_mlh, long current_remaining_time_min) { // OLD Signature
-void updateOledDisplay() { // NEW Signature - no parameters
+// OLED显示更新
+void updateOledDisplay() {
     oled_display.clearBuffer();
     oled_display.setFont(u8g2_font_wqy12_t_gb2312);
-
-    char oled_buf[40]; 
-
-    if (wifi_connected_flag) {
-        snprintf(oled_buf, sizeof(oled_buf), "IP:%s", WiFi.localIP().toString().c_str());
-    } else {
-        snprintf(oled_buf, sizeof(oled_buf), "WiFi未连接");
-    }
-    oled_display.setCursor(0, 10); 
-    oled_display.print(oled_buf);
-
-    // 使用全局变量 g_oled_infused_progress_percent 和 filt_weight_g
-    if (system_initial_weight_set) {
-        snprintf(oled_buf, sizeof(oled_buf), "进度:%.0f%% %.0fg", g_oled_infused_progress_percent, filt_weight_g);
-    } else {
-        snprintf(oled_buf, sizeof(oled_buf), "进度:--%% %.0fg", filt_weight_g);
-    }
-    oled_display.setCursor(0, 22); 
-    oled_display.print(oled_buf);
+    char buf[32];
     
-    // 使用全局变量 g_oled_flow_rate_mlh 和 g_oled_remaining_time_min
-    if (g_oled_remaining_time_min != -1) {
-        snprintf(oled_buf, sizeof(oled_buf), "%.0fmL/h %ldmin", g_oled_flow_rate_mlh, g_oled_remaining_time_min);
+    // 第一行：IP
+    oled_display.setCursor(0, 12);
+    if (wifi_connected_flag) {
+        snprintf(buf, sizeof(buf), "%s", WiFi.localIP().toString().c_str());
     } else {
-        snprintf(oled_buf, sizeof(oled_buf), "%.0fmL/h ---min", g_oled_flow_rate_mlh);
+        snprintf(buf, sizeof(buf), "WiFi未连接");
     }
-    oled_display.setCursor(0, 32);
-    oled_display.print(oled_buf);
-
+    oled_display.print(buf);
+    
+    // 第二行：重量、流速和剩余时间
+    oled_display.setCursor(0, 26);
+    if (g_oled_remaining_time_min >= 0) {
+        snprintf(buf, sizeof(buf), "%.1fg %.2fg/s %ldmin", filt_weight_g, fused_flow_rate_gps, g_oled_remaining_time_min);
+    } else {
+        snprintf(buf, sizeof(buf), "%.1fg %.2fg/s 计算中", filt_weight_g, fused_flow_rate_gps);
+    }
+    oled_display.print(buf);
+    
     oled_display.sendBuffer();
 }
 
-// -----------------------------------
-// ------- WiFi连接函数 ---------------
-// -----------------------------------
+// WiFi连接处理
 void connectToWiFi() {
     Serial.print("正在连接WiFi: ");
     Serial.println(WIFI_SSID);
     WiFi.begin(WIFI_SSID, WIFI_PASS);
-    int attempts = 0;
-    while (WiFi.status() != WL_CONNECTED && attempts < 20) { // 最多尝试20次 (10秒)
+    int tryCount = 0;
+    while (WiFi.status() != WL_CONNECTED && tryCount < 20) {
         delay(500);
         Serial.print(".");
-        attempts++;
+        tryCount++;
     }
     if (WiFi.status() == WL_CONNECTED) {
         wifi_connected_flag = true;
@@ -387,860 +406,729 @@ void connectToWiFi() {
     }
 }
 
-// -----------------------------------
-// -------- 系统初始化函数 -------------
-// -----------------------------------
-void setup() {
-    Serial.begin(115200); // 初始化串口通讯，波特率115200
-    pinMode(PIN_INIT_BUTTON, INPUT_PULLUP); // 初始化按钮引脚，使用内部上拉
-    pinMode(PIN_ABNORMALITY_RESET_BUTTON, INPUT_PULLUP); // Initialize abnormality reset button pin
-    Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL); // 初始化I2C总线 (用于OLED)
-    
-    pixels.begin(); // 初始化 NeoPixel
-    pixels.setBrightness(NEOPIXEL_BRIGHTNESS); // 设置亮度
-    pixels.clear(); // 关闭所有像素
-    pixels.show();  // 更新LED显示
-
-    // 初始化OLED显示屏
-    if (!oled_display.begin()) {
-        Serial.println(F("错误: U8g2 OLED 初始化失败!"));
-        // 考虑添加错误指示，例如LED快速闪烁
-    }
-    oled_display.enableUTF8Print(); // 使能UTF-8字符打印 (支持中文)
-    oled_display.setFont(u8g2_font_wqy12_t_gb2312); // 设置中文字体
-    oled_display.clearBuffer();
-    oled_display.drawStr(0, 10, "系统启动中...");
-    oled_display.sendBuffer();
-
-    // 初始化HX711称重传感器
-    scale_sensor.begin(PIN_HX711_DT, PIN_HX711_SCK); // 初始化HX711接口引脚
-    scale_sensor.set_scale(hx711_cal_factor);       // 设置校准因子
-    scale_sensor.set_gain(128);                     // 设置增益 (通常为128或64)
-    
-    // 设置真正的空秤偏移量
-    const long TRUE_EMPTY_SCALE_OFFSET_ADC = 0; // 这是一个示例值，您需要获取真正的值
-    scale_sensor.set_offset(TRUE_EMPTY_SCALE_OFFSET_ADC);
-
-    // 初始化卡尔曼滤波器状态和相关变量
-    if (scale_sensor.is_ready()) {
-        float initial_weight_reading = scale_sensor.get_units(5); // 读取5次平均值作为初始重量
-        // weight_kf.init(initial_weight_reading); // 旧的 init 调用 - 将被下方更完整的init取代
-        Serial.print("Initial raw weight reading for KF: "); Serial.println(initial_weight_reading);
-        raw_weight_g = initial_weight_reading - 12.0f;          // 然后减去12g //TODO: 这个12g皮重需要校准或配置
-        filt_weight_g = raw_weight_g;
-        prev_filt_weight_g = raw_weight_g;
-        prev_raw_weight_g = raw_weight_g; // 初始化 prev_raw_weight_g
-
-        weight_kf.init(raw_weight_g, 0.0f, 0.0f); // 重量滤波器初始化 (初始速度和加速度为0)
-        Serial.print("Weight KF initialized with (after tare offset): "); Serial.println(raw_weight_g);
-        
-        // 滴速滤波器初始化：初始滴速为0，使用默认参数计算初始每滴重量
-        // initial_wpd_g_per_drip = -1.0f 表示使用内部基于 drops_per_ml 和 density 的默认计算
-        // WPD 初始值为 0.05g/drip (1ml/20drip * 1g/ml)
-        // 将WPD测量噪声R从0.001f改为0.0001f
-        drip_kf.init(0.0f, -1.0f, 20, 1.0f); 
-
-        flow_fusion.init(0.0f, raw_weight_g); // 数据融合模块初始化 (初始融合流速为0, 初始融合重量为当前读数)
-
-        // 初始化硬件引脚模式
-        pinMode(PIN_WATER_SENSOR, INPUT_PULLDOWN); // 水滴传感器引脚设为输入，内部下拉
-        pinMode(NEOPIXEL_PIN, OUTPUT);          // LED状态指示灯引脚设为输出
-        // 附加中断：当水滴传感器引脚电平从低到高 (RISING) 时，调用 onWaterDropIsr 函数
-        attachInterrupt(digitalPinToInterrupt(PIN_WATER_SENSOR), onWaterDropIsr, RISING);
-
-        // 连接WiFi网络
-        connectToWiFi();
-        if (wifi_connected_flag) {
-            http_server.begin(); // 启动HTTP服务器
-            Serial.printf("HTTP 服务器已启动，请访问: http://%s/\n", WiFi.localIP().toString().c_str());
-            
-            ws_server.begin(); 
-            ws_server.onEvent(onWebSocketEvent); 
-            Serial.println("WebSocket 服务器已成功启动。");
-
-            updateOledDisplay();
-
-        } else {
-            Serial.println("警告: 未连接到WiFi，HTTP和WebSocket服务器无法启动。");
-            oled_display.clearBuffer();
-            oled_display.drawStr(0, 10, "WiFi连接失败!");
-            oled_display.sendBuffer();
-        }
-
-        // NeoPixel 闪烁三次白色，表示系统设置完成
-        for (int i = 0; i < 3; i++) {
-            pixels.setPixelColor(0, NEO_COLOR_WHITE);
-            pixels.show();
-            delay(150); // 稍作调整闪烁时间
-            pixels.setPixelColor(0, NEO_COLOR_OFF);
-            pixels.show();
-            delay(150);
-        }
-        Serial.println("系统初始化完成，进入主循环。");
-        last_loop_run_ms = millis(); // 初始化主循环的计时器
-        last_drip_detected_time_ms = millis(); // Initialize last drip time
-        
-        // 初始化系统总液体重量
-        if (raw_weight_g > target_empty_weight_g + 10.0f) {
-            system_initial_total_liquid_weight_g = raw_weight_g;
-            system_initial_weight_set = true;
-            drip_kf.setInitialLiquidWeightForVolumeCalc(system_initial_total_liquid_weight_g);
-            flow_fusion.init(0.0f, system_initial_total_liquid_weight_g);
-            Serial.printf("系统初始总液体重量已设定: %.2f g\n", system_initial_total_liquid_weight_g);
-            if (ws_client_connected_flag) {
-                char initial_params_msg[50];
-                snprintf(initial_params_msg, sizeof(initial_params_msg), "INITIAL_PARAMS:%.1f,%.1f", 
-                         system_initial_total_liquid_weight_g, target_empty_weight_g);
-                ws_server.broadcastTXT(initial_params_msg);
-            }
-        }
-    } else {
-        Serial.println("HX711 not found.");
-        // 可以选择在这里进入错误状态或使用默认值初始化滤波器
-        // weight_kf.init(500.0f); // 旧的 init 调用 - 将被下方更完整的init取代
-        raw_weight_g = 500.0f; // 默认重量
-        filt_weight_g = raw_weight_g;
-        prev_filt_weight_g = raw_weight_g;
-        prev_raw_weight_g = raw_weight_g; // 初始化 prev_raw_weight_g
-
-        weight_kf.init(raw_weight_g, 0.0f, 0.0f); // 重量滤波器初始化 (初始速度和加速度为0)
-        Serial.print("Weight KF initialized with default weight: "); Serial.println(raw_weight_g);
-        
-        // 滴速滤波器初始化：初始滴速为0，使用默认参数计算初始每滴重量
-        // initial_wpd_g_per_drip = -1.0f 表示使用内部基于 drops_per_ml 和 density 的默认计算
-        // WPD 初始值为 0.05g/drip (1ml/20drip * 1g/ml)
-        // 将WPD测量噪声R从0.001f改为0.0001f
-        drip_kf.init(0.0f, -1.0f, 20, 1.0f); 
-
-        flow_fusion.init(0.0f, raw_weight_g); // 数据融合模块初始化 (初始融合流速为0, 初始融合重量为当前读数)
-
-        // 初始化硬件引脚模式
-        pinMode(PIN_WATER_SENSOR, INPUT_PULLDOWN); // 水滴传感器引脚设为输入，内部下拉
-        pinMode(NEOPIXEL_PIN, OUTPUT);          // LED状态指示灯引脚设为输出
-        // 附加中断：当水滴传感器引脚电平从低到高 (RISING) 时，调用 onWaterDropIsr 函数
-        attachInterrupt(digitalPinToInterrupt(PIN_WATER_SENSOR), onWaterDropIsr, RISING);
-
-        // 连接WiFi网络
-        connectToWiFi();
-        if (wifi_connected_flag) {
-            http_server.begin(); // 启动HTTP服务器
-            Serial.printf("HTTP 服务器已启动，请访问: http://%s/\n", WiFi.localIP().toString().c_str());
-            
-            ws_server.begin(); 
-            ws_server.onEvent(onWebSocketEvent); 
-            Serial.println("WebSocket 服务器已成功启动。");
-
-            updateOledDisplay();
-
-        } else {
-            Serial.println("警告: 未连接到WiFi，HTTP和WebSocket服务器无法启动。");
-            oled_display.clearBuffer();
-            oled_display.drawStr(0, 10, "WiFi连接失败!");
-            oled_display.sendBuffer();
-        }
-
-        // NeoPixel 闪烁三次白色，表示系统设置完成
-        for (int i = 0; i < 3; i++) {
-            pixels.setPixelColor(0, NEO_COLOR_WHITE);
-            pixels.show();
-            delay(150); // 稍作调整闪烁时间
-            pixels.setPixelColor(0, NEO_COLOR_OFF);
-            pixels.show();
-            delay(150);
-        }
-        Serial.println("系统初始化完成，进入主循环。");
-        last_loop_run_ms = millis(); // 初始化主循环的计时器
-        last_drip_detected_time_ms = millis(); // Initialize last drip time
-        
-        // 初始化系统总液体重量
-        if (raw_weight_g > target_empty_weight_g + 10.0f) {
-            system_initial_total_liquid_weight_g = raw_weight_g;
-            system_initial_weight_set = true;
-            drip_kf.setInitialLiquidWeightForVolumeCalc(system_initial_total_liquid_weight_g);
-            flow_fusion.init(0.0f, system_initial_total_liquid_weight_g);
-            Serial.printf("系统初始总液体重量已设定: %.2f g\n", system_initial_total_liquid_weight_g);
-            if (ws_client_connected_flag) {
-                char initial_params_msg[50];
-                snprintf(initial_params_msg, sizeof(initial_params_msg), "INITIAL_PARAMS:%.1f,%.1f", 
-                         system_initial_total_liquid_weight_g, target_empty_weight_g);
-                ws_server.broadcastTXT(initial_params_msg);
-            }
-        }
-    }
-
-    // 获取并保存原始的 KF_WEIGHT_R_NOISE 值
-    // WeightKalmanFilter 构造时已经使用了 KF_WEIGHT_R_NOISE
-    // 如果需要从对象获取，可以调用 weight_kf.getMeasurementNoise();
-    // 但由于我们有 KF_WEIGHT_R_NOISE 常量，直接使用它作为原始值是可靠的。
-    original_kf_weight_R_noise = KF_WEIGHT_R_NOISE; 
-
-    // 初始化卡尔曼滤波器状态和相关变量
-    if (scale_sensor.is_ready()) {
-        float initial_weight_reading = scale_sensor.get_units(5); // 读取5次平均值作为初始重量
-        // weight_kf.init(initial_weight_reading); // 旧的 init 调用 - 将被下方更完整的init取代
-        Serial.print("Initial raw weight reading for KF: "); Serial.println(initial_weight_reading);
-        raw_weight_g = initial_weight_reading - 12.0f;          // 然后减去12g //TODO: 这个12g皮重需要校准或配置
-        filt_weight_g = raw_weight_g;
-        prev_filt_weight_g = raw_weight_g;
-        prev_raw_weight_g = raw_weight_g; // 初始化 prev_raw_weight_g
-
-        weight_kf.init(raw_weight_g, 0.0f, 0.0f); // 重量滤波器初始化 (初始速度和加速度为0)
-        Serial.print("Weight KF initialized with (after tare offset): "); Serial.println(raw_weight_g);
-        
-        // 滴速滤波器初始化：初始滴速为0，使用默认参数计算初始每滴重量
-        // initial_wpd_g_per_drip = -1.0f 表示使用内部基于 drops_per_ml 和 density 的默认计算
-        // WPD 初始值为 0.05g/drip (1ml/20drip * 1g/ml)
-        // 将WPD测量噪声R从0.001f改为0.0001f
-        drip_kf.init(0.0f, -1.0f, 20, 1.0f); 
-
-        flow_fusion.init(0.0f, raw_weight_g); // 数据融合模块初始化 (初始融合流速为0, 初始融合重量为当前读数)
-
-        // 初始化硬件引脚模式
-        pinMode(PIN_WATER_SENSOR, INPUT_PULLDOWN); // 水滴传感器引脚设为输入，内部下拉
-        pinMode(NEOPIXEL_PIN, OUTPUT);          // LED状态指示灯引脚设为输出
-        // 附加中断：当水滴传感器引脚电平从低到高 (RISING) 时，调用 onWaterDropIsr 函数
-        attachInterrupt(digitalPinToInterrupt(PIN_WATER_SENSOR), onWaterDropIsr, RISING);
-
-        // 连接WiFi网络
-        connectToWiFi();
-        if (wifi_connected_flag) {
-            http_server.begin(); // 启动HTTP服务器
-            Serial.printf("HTTP 服务器已启动，请访问: http://%s/\n", WiFi.localIP().toString().c_str());
-            
-            ws_server.begin(); 
-            ws_server.onEvent(onWebSocketEvent); 
-            Serial.println("WebSocket 服务器已成功启动。");
-
-            updateOledDisplay();
-
-        } else {
-            Serial.println("警告: 未连接到WiFi，HTTP和WebSocket服务器无法启动。");
-            oled_display.clearBuffer();
-            oled_display.drawStr(0, 10, "WiFi连接失败!");
-            oled_display.sendBuffer();
-        }
-
-        // NeoPixel 闪烁三次白色，表示系统设置完成
-        for (int i = 0; i < 3; i++) {
-            pixels.setPixelColor(0, NEO_COLOR_WHITE);
-            pixels.show();
-            delay(150); // 稍作调整闪烁时间
-            pixels.setPixelColor(0, NEO_COLOR_OFF);
-            pixels.show();
-            delay(150);
-        }
-        Serial.println("系统初始化完成，进入主循环。");
-        last_loop_run_ms = millis(); // 初始化主循环的计时器
-        last_drip_detected_time_ms = millis(); // Initialize last drip time
-        
-        // 初始化系统总液体重量
-        if (raw_weight_g > target_empty_weight_g + 10.0f) {
-            system_initial_total_liquid_weight_g = raw_weight_g;
-            system_initial_weight_set = true;
-            drip_kf.setInitialLiquidWeightForVolumeCalc(system_initial_total_liquid_weight_g);
-            flow_fusion.init(0.0f, system_initial_total_liquid_weight_g);
-            Serial.printf("系统初始总液体重量已设定: %.2f g\n", system_initial_total_liquid_weight_g);
-            if (ws_client_connected_flag) {
-                char initial_params_msg[50];
-                snprintf(initial_params_msg, sizeof(initial_params_msg), "INITIAL_PARAMS:%.1f,%.1f", 
-                         system_initial_total_liquid_weight_g, target_empty_weight_g);
-                ws_server.broadcastTXT(initial_params_msg);
-            }
-        }
-    } else {
-        Serial.println("HX711 not found.");
-        // 可以选择在这里进入错误状态或使用默认值初始化滤波器
-        // weight_kf.init(500.0f); // 旧的 init 调用 - 将被下方更完整的init取代
-        raw_weight_g = 500.0f; // 默认重量
-        filt_weight_g = raw_weight_g;
-        prev_filt_weight_g = raw_weight_g;
-        prev_raw_weight_g = raw_weight_g; // 初始化 prev_raw_weight_g
-
-        weight_kf.init(raw_weight_g, 0.0f, 0.0f); // 重量滤波器初始化 (初始速度和加速度为0)
-        Serial.print("Weight KF initialized with default weight: "); Serial.println(raw_weight_g);
-        
-        // 滴速滤波器初始化：初始滴速为0，使用默认参数计算初始每滴重量
-        // initial_wpd_g_per_drip = -1.0f 表示使用内部基于 drops_per_ml 和 density 的默认计算
-        // WPD 初始值为 0.05g/drip (1ml/20drip * 1g/ml)
-        // 将WPD测量噪声R从0.001f改为0.0001f
-        drip_kf.init(0.0f, -1.0f, 20, 1.0f); 
-
-        flow_fusion.init(0.0f, raw_weight_g); // 数据融合模块初始化 (初始融合流速为0, 初始融合重量为当前读数)
-
-        // 初始化硬件引脚模式
-        pinMode(PIN_WATER_SENSOR, INPUT_PULLDOWN); // 水滴传感器引脚设为输入，内部下拉
-        pinMode(NEOPIXEL_PIN, OUTPUT);          // LED状态指示灯引脚设为输出
-        // 附加中断：当水滴传感器引脚电平从低到高 (RISING) 时，调用 onWaterDropIsr 函数
-        attachInterrupt(digitalPinToInterrupt(PIN_WATER_SENSOR), onWaterDropIsr, RISING);
-
-        // 连接WiFi网络
-        connectToWiFi();
-        if (wifi_connected_flag) {
-            http_server.begin(); // 启动HTTP服务器
-            Serial.printf("HTTP 服务器已启动，请访问: http://%s/\n", WiFi.localIP().toString().c_str());
-            
-            ws_server.begin(); 
-            ws_server.onEvent(onWebSocketEvent); 
-            Serial.println("WebSocket 服务器已成功启动。");
-
-            updateOledDisplay();
-
-        } else {
-            Serial.println("警告: 未连接到WiFi，HTTP和WebSocket服务器无法启动。");
-            oled_display.clearBuffer();
-            oled_display.drawStr(0, 10, "WiFi连接失败!");
-            oled_display.sendBuffer();
-        }
-
-        // NeoPixel 闪烁三次白色，表示系统设置完成
-        for (int i = 0; i < 3; i++) {
-            pixels.setPixelColor(0, NEO_COLOR_WHITE);
-            pixels.show();
-            delay(150);
-            pixels.setPixelColor(0, NEO_COLOR_OFF);
-            pixels.show();
-            delay(150);
-        }
-        Serial.println("系统初始化完成，进入主循环。");
-        last_loop_run_ms = millis(); // 初始化主循环的计时器
-        last_drip_detected_time_ms = millis(); // Initialize last drip time
-        
-        // 初始化系统总液体重量
-        if (raw_weight_g > target_empty_weight_g + 10.0f) {
-            system_initial_total_liquid_weight_g = raw_weight_g;
-            system_initial_weight_set = true;
-            drip_kf.setInitialLiquidWeightForVolumeCalc(system_initial_total_liquid_weight_g);
-            flow_fusion.init(0.0f, system_initial_total_liquid_weight_g);
-            Serial.printf("系统初始总液体重量已设定: %.2f g\n", system_initial_total_liquid_weight_g);
-            if (ws_client_connected_flag) {
-                char initial_params_msg[50];
-                snprintf(initial_params_msg, sizeof(initial_params_msg), "INITIAL_PARAMS:%.1f,%.1f", 
-                         system_initial_total_liquid_weight_g, target_empty_weight_g);
-                ws_server.broadcastTXT(initial_params_msg);
-            }
-        }
-    }
-
-    // 备份原始的重量滤波器R值
-    original_kf_weight_R_noise = weight_kf.getMeasurementNoise();
-    Serial.printf("原始重量 KF R: %.4f\n", original_kf_weight_R_noise);
-
-    // 新增: 备份 DripKalmanFilter 的原始R值
-    original_drip_kf_R_drip_rate_noise = drip_kf.getDripRateMeasurementNoise();
-    original_drip_kf_R_wpd_noise = drip_kf.getWpdMeasurementNoise();
-    Serial.printf("原始Drip KF R_drip_rate: %.4f, R_wpd: %.4f\n", original_drip_kf_R_drip_rate_noise, original_drip_kf_R_wpd_noise);
-
-    // 新增: 备份 DataFusion 的原始R值
-    flow_fusion.getFlowMeasurementNoises(original_fusion_R_weight_flow, original_fusion_R_drip_flow);
-    flow_fusion.getWeightMeasurementNoises(original_fusion_R_weight_weight, original_fusion_R_drip_weight);
-    Serial.printf("原始Fusion R_flow (w,d): %.4f, %.4f; R_weight (w,d): %.4f, %.4f\n", 
-                  original_fusion_R_weight_flow, original_fusion_R_drip_flow, 
-                  original_fusion_R_weight_weight, original_fusion_R_drip_weight);
-
-    // 初始化看门狗 (如果需要)
-    // ... existing code ...
-}
-
-// -----------------------------------
-// ---- HTTP 请求处理函数 --------------
-// -----------------------------------
+// HTTP请求处理
 void handleHttpRequests() {
-    WiFiClient client = http_server.available(); // 尝试获取连接的客户端
-    if (!client) {
-        return; // 没有客户端连接
-    }
+    WiFiClient client = http_server.available();
+    if (!client) return;
     
     Serial.println("新的HTTP客户端已连接!");
     unsigned long current_http_req_time = millis();
     unsigned long previous_http_req_time = current_http_req_time;
-    String current_line = ""; // 用于存储客户端请求的当前行
+    String current_line = "";
 
-    while (client.connected() && (current_http_req_time - previous_http_req_time < 2000)) { // 2秒超时
+    while (client.connected() && (current_http_req_time - previous_http_req_time < 2000)) {
         current_http_req_time = millis();
         if (client.available()) {
             char c = client.read();
-            // Serial.write(c); // 调试：打印客户端请求原文
-            if (c == '\n') { // 如果是换行符，表示一行的结束
-                if (current_line.length() == 0) { // 如果连续收到两个换行符，表示请求头结束
-                    // 发送HTTP响应
+            if (c == '\n') {
+                if (current_line.length() == 0) {
                     client.println("HTTP/1.1 200 OK");
                     client.println("Content-type:text/html; charset=UTF-8");
-                    client.println("Connection: close"); // 告知客户端完成后关闭连接
-                    client.println(); // HTTP头结束后的空行
+                    client.println("Connection: close");
+                    client.println();
                     
-                    // 发送HTML页面内容
-                    // 由于HTML_WEBPAGE可能很大，分块发送以避免缓冲区问题
-                    const int chunkSize = 256; // 每次发送的块大小
+                    const int chunkSize = 256;
                     int totalLen = strlen(HTML_WEBPAGE);
                     for (int i = 0; i < totalLen; i += chunkSize) {
                         client.print(String(HTML_WEBPAGE).substring(i, min(i + chunkSize, totalLen)));
                     }
-                    client.println(); // 确保内容发送完毕
-                    break; // 跳出while循环，因为已发送响应
+                    client.println();
+                    break;
                 } else {
-                    current_line = ""; // 清空current_line准备接收下一行
+                    current_line = "";
                 }
-            } else if (c != '\r') { // 如果不是回车符
-                current_line += c; // 将字符附加到current_line
+            } else if (c != '\r') {
+                current_line += c;
             }
-            previous_http_req_time = current_http_req_time; // 重置超时计时器
+            previous_http_req_time = current_http_req_time;
         }
     }
     
-    client.stop(); // 关闭连接
+    client.stop();
     Serial.println("HTTP客户端已断开连接。");
 }
 
-// --- 辅助函数：计算特定条件下的剩余时间 ---
-float calculate_specific_remaining_time(float current_liquid_weight, float target_empty_ref_weight, float current_flow_rate_gps, float undefined_time_value = 88888.0f) {
+// 计算特定条件下的剩余时间
+float calculate_specific_remaining_time(float current_liquid_weight, float target_empty_ref_weight, 
+                                      float current_flow_rate_gps, float undefined_time_value) {
     float weight_to_infuse = current_liquid_weight - target_empty_ref_weight;
-    if (weight_to_infuse <= 0.01f) { // 已达到或低于目标空重 (带小容差)
+    if (weight_to_infuse <= 0.01f) {
         return 0.0f;
     }
-    if (current_flow_rate_gps > 1e-5f) { // 有效的正流速
+    if (current_flow_rate_gps > 1e-5f) {
         float time = weight_to_infuse / current_flow_rate_gps;
-        // 确保时间不为负 (如果 weight_to_infuse 为正，则不应发生)
         return (time < 0.0f) ? 0.0f : ((time > 999999.0f) ? 999999.0f : time);
-    } else { // 流速为零或可忽略
-        return undefined_time_value; // 表示非常长或未定义的时间
+    } else {
+        return undefined_time_value;
     }
 }
 
-// --- 新增：系统重新初始化函数 ---
+// 系统重新初始化函数
 void performSystemReinitialization() {
+    static int reinit_error_count = 0; // 记录连续异常次数
+    const int REINIT_ERROR_THRESHOLD = 3; // 异常阈值，超过则锁定系统
     Serial.println("系统重新初始化请求...");
+    current_system_state = SystemState::INITIALIZING;  // 设置为初始化中状态
 
-    float new_initial_weight = 0.0f;
-    if (scale_sensor.is_ready()) {
-        new_initial_weight = scale_sensor.get_units(10);
-        if (isnan(new_initial_weight) || isinf(new_initial_weight) || fabsf(new_initial_weight) > 5000.0f) {
-            Serial.printf("警告: 重新初始化时重量读数异常: %.2f, 使用500g作为替代.\n", new_initial_weight);
-            new_initial_weight = 500.0f; 
-        }
-    } else {
-        Serial.println("警告: 重新初始化时 HX711 未就绪，使用500g作为初始重量。");
-        new_initial_weight = 500.0f;
-    }
-    if (new_initial_weight < 1.0f && new_initial_weight > -1.0f) { // If reading is very close to zero (e.g. after faulty read returning 0)
-        Serial.println("警告: 重新初始化重量读数接近零，可能不准确，强制使用500g。");
-        new_initial_weight = 500.0f;
-    }
-    new_initial_weight = new_initial_weight - 12.0f;
-    system_initial_weight_set = true;
-    system_initial_total_liquid_weight_g = new_initial_weight;
+    // 重置所有状态变量
+    infusion_abnormal = false;
+    fast_convergence_mode = false;
+    system_initial_weight_set = false;
+    system_initial_total_liquid_weight_g = 0.0f;
     
-    Serial.printf("系统重新初始化完成。新的初始总重量: %.1fg, 当前目标空重: %.1fg\n", 
-                  system_initial_total_liquid_weight_g, target_empty_weight_g); // Adjusted message slightly
+    // 重置传感器
+    scale_sensor.begin(PIN_HX711_DT, PIN_HX711_SCK);
+    scale_sensor.set_scale(hx711_cal_factor);
+    scale_sensor.set_gain(128);
+    scale_sensor.set_offset(0);
 
-    weight_kf.init(new_initial_weight, 0.0f, 0.0f);
-    drip_kf.init(); 
+    // 检查称重传感器是否就绪
+    if (!scale_sensor.is_ready()) {
+        Serial.println("警告: 重新初始化时 HX711 未就绪，系统进入异常状态。");
+        current_system_state = SystemState::INIT_ERROR;
+        reinit_error_count++;
+        return;
+    }
+
+    // 读取初始重量
+    float initial_weight_reading = scale_sensor.get_units(10); // 读取10次平均值
+    initial_weight_reading = initial_weight_reading - 12.0f; // 扣除皮重
+    
+    // 检查重量读数是否异常
+    if (isnan(initial_weight_reading) || isinf(initial_weight_reading) || 
+        fabsf(initial_weight_reading) > 5000.0f || 
+        initial_weight_reading <= target_empty_weight_g + 10.0f) {
+        Serial.printf("警告: 重新初始化时重量读数异常: %.2f，系统进入异常状态。\n", initial_weight_reading);
+        current_system_state = SystemState::INIT_ERROR;
+        reinit_error_count++;
+        return;
+    }
+
+    // 重置异常计数
+    reinit_error_count = 0;
+
+    // 更新系统状态
+    raw_weight_g = initial_weight_reading;
+    filt_weight_g = raw_weight_g;
+    prev_filt_weight_g = raw_weight_g;
+    prev_raw_weight_g = raw_weight_g;
+
+    // 设置系统初始重量
+    system_initial_total_liquid_weight_g = raw_weight_g;
+    system_initial_weight_set = true;
+
+    // 初始化各滤波器
+    weight_kf.init(raw_weight_g, 0.0f, 0.0f);
+    drip_kf.init(0.0f, -1.0f, 20, 1.0f);
     drip_kf.setInitialLiquidWeightForVolumeCalc(system_initial_total_liquid_weight_g);
-    flow_fusion.init(0.0f, new_initial_weight);
+    flow_fusion.init(0.0f, raw_weight_g);
 
+    // 停止WPD校准相关状态
     drip_kf.stopWpdCalibration();
     wpd_long_cal_active = false;
-    // last_wpd_cal_check_time = millis(); // Commented out as it seems no longer actively used for WPD cal triggering
 
-
-
-    Serial.println("所有滤波器进入快速收敛模式 (60秒).");
+    // 进入快速收敛模式
+    current_system_state = SystemState::FAST_CONVERGENCE;
     fast_convergence_mode = true;
-    fast_convergence_start_ms = millis(); // Corrected variable name
+    fast_convergence_start_ms = millis();
 
+    // 设置快速收敛模式下的滤波器参数
     float fast_R_weight = original_kf_weight_R_noise / 10.0f;
-    if (fast_R_weight < 1e-7f) fast_R_weight = 1e-7f; // Ensure not too small
     weight_kf.setMeasurementNoise(fast_R_weight);
-    Serial.printf("  WeightKF R: %.4f -> %.4f\n", original_kf_weight_R_noise, fast_R_weight);
 
     float fast_R_drip_rate = original_drip_kf_R_drip_rate_noise / 10.0f;
     float fast_R_wpd = original_drip_kf_R_wpd_noise / 10.0f;
-    if (fast_R_drip_rate < 1e-7f) fast_R_drip_rate = 1e-7f;
-    if (fast_R_wpd < 1e-7f) fast_R_wpd = 1e-7f; 
     drip_kf.setDripRateMeasurementNoise(fast_R_drip_rate);
     drip_kf.setWpdMeasurementNoise(fast_R_wpd);
-    Serial.printf("  DripKF R_drip_rate: %.4f -> %.4f, R_wpd: %.4f -> %.4f\n", 
-                  original_drip_kf_R_drip_rate_noise, fast_R_drip_rate, 
-                  original_drip_kf_R_wpd_noise, fast_R_wpd);
 
     float fast_R_fusion_w_flow = original_fusion_R_weight_flow / 10.0f;
     float fast_R_fusion_d_flow = original_fusion_R_drip_flow / 10.0f;
     float fast_R_fusion_w_weight = original_fusion_R_weight_weight / 10.0f;
     float fast_R_fusion_d_weight = original_fusion_R_drip_weight / 10.0f;
-    if (fast_R_fusion_w_flow < 1e-7f) fast_R_fusion_w_flow = 1e-7f;
-    if (fast_R_fusion_d_flow < 1e-7f) fast_R_fusion_d_flow = 1e-7f;
-    if (fast_R_fusion_w_weight < 1e-7f) fast_R_fusion_w_weight = 1e-7f;
-    if (fast_R_fusion_d_weight < 1e-7f) fast_R_fusion_d_weight = 1e-7f;
     flow_fusion.setFlowMeasurementNoises(fast_R_fusion_w_flow, fast_R_fusion_d_flow);
     flow_fusion.setWeightMeasurementNoises(fast_R_fusion_w_weight, fast_R_fusion_d_weight);
-    Serial.printf("  Fusion R_flow(w,d): (%.4f,%.4f)->(%.4f,%.4f)\n",
-                  original_fusion_R_weight_flow, original_fusion_R_drip_flow,
-                  fast_R_fusion_w_flow, fast_R_fusion_d_flow);
-    Serial.printf("  Fusion R_weight(w,d): (%.4f,%.4f)->(%.4f,%.4f)\n",
-                  original_fusion_R_weight_weight, original_fusion_R_drip_weight,
-                  fast_R_fusion_w_weight, fast_R_fusion_d_weight);
 
-    // NeoPixel feedback for reinitialization
-    pixels.setPixelColor(0, NEO_COLOR_WHITE);
-    pixels.show();
-    delay(250); // Show white briefly
-    // The LED will then be updated by the main loop logic based on the new state (e.g., green or blue if calibration starts)
-    // For blinking, ensure the static blink state variable is reset or starts appropriately
-    // neo_led_state_is_on = false; // Start with LED off for the next blink cycle in normal mode - REMOVED
-
+    // 刷新OLED显示
     updateOledDisplay();
-    if (ws_client_connected_flag) {
-        char reinit_msg[150];
+
+    // 通知WebSocket客户端
+    if (wifi_connected_flag && ws_client_connected_flag) {
+        char reinit_msg[200];
         snprintf(reinit_msg, sizeof(reinit_msg), 
-                 "ALERT:System Re-initialized. New initial weight: %.1fg. Target empty: %.1fg. Fast convergence mode ON (60s).", 
+                 "警告: 系统已重新初始化。新的初始总重量: %.1fg，目标空重: %.1fg。快速收敛模式已开启（60秒）。", 
                  system_initial_total_liquid_weight_g, target_empty_weight_g);
         ws_server.broadcastTXT(reinit_msg);
         char initial_params_msg[100];
-        snprintf(initial_params_msg, sizeof(initial_params_msg), "INITIAL_PARAMS:%.1f,%.1f,%.1f",
+        snprintf(initial_params_msg, sizeof(initial_params_msg), "初始参数:%.1f,%.1f,%.1f",
                  system_initial_total_liquid_weight_g, target_empty_weight_g, (float)DEFAULT_TARGET_TOTAL_DROPS_VOLUME_CALC);
         ws_server.broadcastTXT(initial_params_msg);
     }
+
+    Serial.printf("系统重新初始化完成。新的初始总重量: %.1fg, 当前目标空重: %.1fg\n", 
+                  system_initial_total_liquid_weight_g, target_empty_weight_g);
 }
 
-// -----------------------------------
-// -------- 主循环函数 ----------------
-// -----------------------------------
+// ================================
+//         系统初始化函数
+// ================================
+void setup() {
+    // 串口初始化
+    Serial.begin(115200);
+
+    // =========================
+    //   硬件引脚模式统一设置
+    // =========================
+    // 按钮引脚初始化（上电默认高电平，内部上拉）
+    pinMode(PIN_INIT_BUTTON, INPUT_PULLUP);
+    pinMode(PIN_ABNORMALITY_RESET_BUTTON, INPUT_PULLUP);
+
+    // 水滴传感器
+    pinMode(PIN_WATER_SENSOR, INPUT_PULLDOWN);
+
+    // LED指示灯
+    pinMode(NEOPIXEL_PIN, OUTPUT);
+
+    // =========================
+    //   外设初始化
+    // =========================
+    // NeoPixel LED初始化
+    pixels.begin();
+    pixels.setBrightness(NEOPIXEL_BRIGHTNESS);
+    pixels.clear();
+    pixels.show();
+
+    // OLED显示屏初始化
+    Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);    // I2C总线初始化（用于OLED显示）
+    oled_display.begin();
+    oled_display.enableUTF8Print(); // 使能UTF-8中文显示
+    oled_display.setFont(u8g2_font_wqy12_t_gb2312); // 设置中文字体
+    oled_display.clearBuffer();
+    oled_display.drawStr(0, 10, "系统启动中...");
+    oled_display.sendBuffer();
+
+    // HX711称重传感器初始化
+    scale_sensor.begin(PIN_HX711_DT, PIN_HX711_SCK);
+    scale_sensor.set_scale(hx711_cal_factor); // 校准因子
+    scale_sensor.set_gain(128);               // 增益设置
+
+    // =========================
+    //   中断初始化
+    // =========================
+    attachInterrupt(digitalPinToInterrupt(PIN_WATER_SENSOR), onWaterDropIsr, RISING); // 水滴中断
+
+    // =========================
+    //   网络与服务初始化
+    // =========================
+    connectToWiFi();
+    if (wifi_connected_flag) {
+        http_server.begin();
+        Serial.printf("HTTP服务器已启动: http://%s/\n", WiFi.localIP().toString().c_str());
+        ws_server.begin();
+        ws_server.onEvent(onWebSocketEvent);
+        Serial.println("WebSocket服务器已启动。");
+        updateOledDisplay();
+    } else {
+        Serial.println("警告: WiFi未连接，HTTP/WebSocket服务器未启动。");
+        oled_display.clearBuffer();
+        oled_display.drawStr(0, 10, "WiFi连接失败!");
+        oled_display.sendBuffer();
+    }
+
+    // 白灯闪烁三次，表示硬件初始化完成
+    for (int i = 0; i < 3; i++) {
+        pixels.setPixelColor(0, NEO_COLOR_WHITE);
+        pixels.show();
+        delay(150);
+        pixels.setPixelColor(0, NEO_COLOR_OFF);
+        pixels.show();
+        delay(150);
+    }
+
+    // =========================
+    //   备份滤波器原始参数
+    // =========================
+    // 初始化滤波器以获取原始参数
+    weight_kf.init(0.0f, 0.0f, 0.0f);
+    drip_kf.init(0.0f, -1.0f, 20, 1.0f);
+    flow_fusion.init(0.0f, 0.0f);
+
+    // 备份重量滤波器参数
+    original_kf_weight_R_noise = weight_kf.getMeasurementNoise();
+    Serial.printf("原始重量滤波器R: %.4f\n", original_kf_weight_R_noise);
+
+    // 备份滴速滤波器参数
+    original_drip_kf_R_drip_rate_noise = drip_kf.getDripRateMeasurementNoise();
+    original_drip_kf_R_wpd_noise = drip_kf.getWpdMeasurementNoise();
+    Serial.printf("原始滴速滤波器R: %.4f, WPD: %.4f\n", original_drip_kf_R_drip_rate_noise, original_drip_kf_R_wpd_noise);
+
+    // 备份数据融合滤波器参数
+    flow_fusion.getFlowMeasurementNoises(original_fusion_R_weight_flow, original_fusion_R_drip_flow);
+    flow_fusion.getWeightMeasurementNoises(original_fusion_R_weight_weight, original_fusion_R_drip_weight);
+    Serial.printf("原始融合R_flow(重量,滴速): %.4f, %.4f; R_weight(重量,滴速): %.4f, %.4f\n",
+                  original_fusion_R_weight_flow, original_fusion_R_drip_flow,
+                  original_fusion_R_weight_weight, original_fusion_R_drip_weight);
+
+    // 执行系统初始化
+    performSystemReinitialization();
+
+    // 初始化时间戳
+    last_loop_run_ms = millis();
+    last_drip_detected_time_ms = millis();
+}
+
+// ==========================
+// 7. 主循环函数
+// ==========================
+
 void loop() {
-    unsigned long current_time_ms = millis(); // Use this for most checks in the loop
+    unsigned long current_time_ms = millis();
 
-    // --- Button Checks ---
-    // Abnormality Reset Button
-    bool current_reset_button_state = digitalRead(PIN_ABNORMALITY_RESET_BUTTON);
-    if (current_reset_button_state == LOW && last_abnormality_reset_button_state == HIGH &&
-        (current_time_ms - last_abnormality_reset_button_press_time > ABNORMALITY_RESET_BUTTON_DEBOUNCE_MS)) {
-        last_abnormality_reset_button_press_time = current_time_ms;
-        if (infusion_abnormal) {
-            Serial.println("输液异常状态已通过按钮解除。恢复正常监控。");
-            infusion_abnormal = false;
-            last_drip_detected_time_ms = current_time_ms; // Reset drip timer
-            if (wifi_connected_flag && ws_client_connected_flag) { // Notify WS
-                ws_server.broadcastTXT("ALERT:INFUSION_ABNORMALITY_CLEARED_BY_BUTTON");
-            }
-        }
-    }
-    last_abnormality_reset_button_state = current_reset_button_state;
-
-    // System Re-initialization Button (existing, with additions for abnormality reset)
-    bool current_init_button_state = digitalRead(PIN_INIT_BUTTON);
-    if (current_init_button_state == LOW && last_init_button_state == HIGH && (current_time_ms - last_init_button_press_time > INIT_BUTTON_DEBOUNCE_MS)) {
-        last_init_button_press_time = current_time_ms;
-        performSystemReinitialization();
-        infusion_abnormal = false; // Re-init should clear abnormal state
-        last_drip_detected_time_ms = current_time_ms; // Reset drip timer after re-init
-    }
-    last_init_button_state = current_init_button_state;
-
-    // --- Abnormality Detection ---
-    // Check only if system is initialized (initial weight set) and not already in abnormal state
-    if (system_initial_weight_set && !infusion_abnormal) {
-        if (current_time_ms - last_drip_detected_time_ms > MAX_NO_DRIP_INTERVAL_MS) {
-            Serial.println("警告: 输液异常！超过10秒未检测到液滴。");
-            infusion_abnormal = true;
-            if (wifi_connected_flag && ws_client_connected_flag) {
-                ws_server.broadcastTXT("ALERT:INFUSION_ABNORMALITY_NO_DRIPS_DETECTED");
-            }
-        }
+    // 按钮检测
+    handleButtonInputs(current_time_ms);
+    
+    // 异常检测（仅在正常状态下）
+    if (current_system_state == SystemState::NORMAL) {
+        checkInfusionAbnormality(current_time_ms);
     }
     
-    // --- Fast convergence mode processing (existing, with addition for drip timer reset) ---
-    if (fast_convergence_mode) {
-        if (millis() - fast_convergence_start_ms >= FAST_CONVERGENCE_DURATION_MS) { 
-            Serial.println("快速收敛模式结束，恢复所有滤波器原始R值。");
-            
-            weight_kf.setMeasurementNoise(original_kf_weight_R_noise);
-            Serial.printf("  WeightKF R restored: %.4f\n", original_kf_weight_R_noise);
-            
-            drip_kf.setDripRateMeasurementNoise(original_drip_kf_R_drip_rate_noise);
-            drip_kf.setWpdMeasurementNoise(original_drip_kf_R_wpd_noise);
-            Serial.printf("  DripKF R_drip_rate restored: %.4f, R_wpd restored: %.4f\n", 
-                          original_drip_kf_R_drip_rate_noise, original_drip_kf_R_wpd_noise);
-
-            flow_fusion.setFlowMeasurementNoises(original_fusion_R_weight_flow, original_fusion_R_drip_flow);
-            flow_fusion.setWeightMeasurementNoises(original_fusion_R_weight_weight, original_fusion_R_drip_weight);
-            Serial.printf("  Fusion R_flow(w,d) restored: (%.4f,%.4f)\n", original_fusion_R_weight_flow, original_fusion_R_drip_flow);
-            Serial.printf("  Fusion R_weight(w,d) restored: (%.4f,%.4f)\n", original_fusion_R_weight_weight, original_fusion_R_drip_weight);
-
-            fast_convergence_mode = false;
-            last_drip_detected_time_ms = current_time_ms; // Reset drip timer when fast convergence ends
-
-            if (system_initial_weight_set && !drip_kf.isWpdCalibrating()) {
-                drip_kf.startWpdCalibration();
-                Serial.println("WPD校准已在快速收garan哦模式结束后自动启动。");
-                if (ws_client_connected_flag) {
-                    ws_server.broadcastTXT("ALERT:Fast convergence OFF. WPD calibration auto-started. Drip monitoring active.");
-                }
-            } else if (ws_client_connected_flag) { 
-                 ws_server.broadcastTXT("ALERT:Fast convergence mode OFF. Filters restored. Drip monitoring active.");
-            }
-        }
+    // 快速收敛模式处理
+    if (current_system_state == SystemState::FAST_CONVERGENCE) {
+        handleFastConvergenceMode(current_time_ms);
     }
 
-    // --- Network tasks (always run) ---
+    // 网络任务
     if (wifi_connected_flag) {
         ws_server.loop(); 
         handleHttpRequests(); 
     }
 
-    // --- LED State Update (Replaces all previous LED setting blocks) ---
-    if (infusion_abnormal) {
-        pixels.setPixelColor(0, NEO_COLOR_RED);     // 异常：红灯常亮
-    } else if (fast_convergence_mode) {
-        pixels.setPixelColor(0, NEO_COLOR_BLUE);    // 快速收敛：蓝灯常亮
-    } else {
-        // 正常输液（包括WPD校准、输液接近完成等其他非异常、非快速收敛的状态）
-        pixels.setPixelColor(0, NEO_COLOR_GREEN);   // 正常：绿灯常亮
+    // LED状态更新
+    updateLedStatus();
+
+    // 主处理逻辑（仅在正常状态或快速收敛状态下）
+    if (current_system_state == SystemState::NORMAL || 
+        current_system_state == SystemState::FAST_CONVERGENCE) {
+        handleMainProcessing(current_time_ms);
+    } else if (!wifi_connected_flag) {
+        delay(100); // 防止死循环
     }
-    pixels.show(); // 更新LED状态
+}
 
-    // --- Main processing logic OR Abnormal state handling ---
-    if (infusion_abnormal) {
-        // LED已在上方处理.
-        // 主处理逻辑跳过.
-        // If no network tasks are running (e.g. WiFi down), add a small delay to prevent tight loop.
-        if (!wifi_connected_flag) {
-            delay(100); 
+// 按钮输入处理
+void handleButtonInputs(unsigned long current_time_ms) {
+    // 初始化按钮状态检测（上电默认高电平，按下为低电平）
+    static bool last_init_button_state = HIGH;
+    static unsigned long last_init_button_press_time = 0;
+    bool current_init_button_state = digitalRead(PIN_INIT_BUTTON);
+    
+    // 异常复位按钮状态检测
+    static bool last_abnormality_reset_button_state = HIGH;
+    static unsigned long last_abnormality_reset_button_press_time = 0;
+    bool current_abnormality_reset_button_state = digitalRead(PIN_ABNORMALITY_RESET_BUTTON);
+
+    // 初始化按钮按下（低电平触发）并去抖
+    if (last_init_button_state == HIGH && current_init_button_state == LOW) {
+        if (current_time_ms - last_init_button_press_time > INIT_BUTTON_DEBOUNCE_MS) {
+            Serial.println("初始化按钮被按下");
+            last_init_button_press_time = current_time_ms;
+            
+            // 执行系统重新初始化
+            performSystemReinitialization();
+            // 直接进入快速收敛模式
+            current_system_state = SystemState::FAST_CONVERGENCE;
+            fast_convergence_mode = true;
+            fast_convergence_start_ms = current_time_ms;
         }
-    } else { // Normal operation: run main sensor processing loop
-        // LED已在上方为正常/快速收敛状态处理.
-        
-        // Calculate time delta for main loop
-        float dt_main_loop_s = (current_time_ms - last_loop_run_ms) / 1000.0f;
+    }
+    last_init_button_state = current_init_button_state;
 
-        if (dt_main_loop_s >= (MAIN_LOOP_INTERVAL_MS / 1000.0f)) {
-            last_loop_run_ms = current_time_ms; // Update last run time for the main processing block
+    // 异常复位按钮按下（低电平触发）并去抖
+    if (last_abnormality_reset_button_state == HIGH && current_abnormality_reset_button_state == LOW) {
+        if (current_time_ms - last_abnormality_reset_button_press_time > ABNORMALITY_RESET_BUTTON_DEBOUNCE_MS) {
+            Serial.println("异常复位按钮被按下");
+            last_abnormality_reset_button_press_time = current_time_ms;
             
-            // --- START OF EXISTING MAIN PROCESSING LOGIC ---
-            float current_raw_weight_g_for_flow_calc = 0.0f; 
-            float prev_filt_weight_g_this_main_loop = filt_weight_g; 
-            
-            if (scale_sensor.is_ready()) { 
-                float gross_weight_reading_g = scale_sensor.get_units(5); 
-                raw_weight_g = gross_weight_reading_g - 12.0f;    
-                current_raw_weight_g_for_flow_calc = raw_weight_g; 
-                if ((fabsf(raw_weight_g) > 2000.0f && fabsf(prev_filt_weight_g_this_main_loop) < 1000.0f) || isnan(raw_weight_g) || isinf(raw_weight_g)) {
-                    Serial.printf("警告: HX711读数 %.2f g 异常! 使用上一滤波值 %.2f g 代替。\n", raw_weight_g, prev_filt_weight_g_this_main_loop);
-                    raw_weight_g = prev_filt_weight_g_this_main_loop; 
-                }
-            } else {
-                raw_weight_g = prev_filt_weight_g_this_main_loop; 
-                current_raw_weight_g_for_flow_calc = prev_raw_weight_g; 
-                Serial.println("警告: HX711 传感器未就绪!");
+            // 根据当前状态决定复位行为
+            switch (current_system_state) {
+                case SystemState::INIT_ERROR:
+                    // 如果是初始化错误，执行重新初始化
+                    performSystemReinitialization();
+                    break;
+                case SystemState::INFUSION_ERROR:
+                    // 如果是输液异常，清除异常标志并恢复正常状态
+                    infusion_abnormal = false;
+                    current_system_state = SystemState::NORMAL;
+                    // 重置检测时间，开始新的检测周期
+                    last_drip_detected_time_ms = current_time_ms;
+                    Serial.println("输液异常已复位，系统恢复正常状态，开始新的检测周期");
+                    break;
+                case SystemState::FAST_CONVERGENCE:
+                    // 如果是快速收敛模式，恢复正常状态
+                    current_system_state = SystemState::NORMAL;
+                    fast_convergence_mode = false;
+                    Serial.println("退出快速收敛模式，系统恢复正常状态");
+                    break;
+                default:
+                    // 其他状态不需要处理
+                    break;
             }
-            
-            if (dt_main_loop_s > 1e-5f) {
-                raw_flow_weight_gps = (prev_raw_weight_g - current_raw_weight_g_for_flow_calc) / dt_main_loop_s;
-            } else {
-                raw_flow_weight_gps = 0.0f;
-            }
-            if (raw_flow_weight_gps < 0 && fabsf(raw_flow_weight_gps) > 0.0001f) { 
-                 raw_flow_weight_gps = 0.0f;
-            } else if (raw_flow_weight_gps < 0) {
-                raw_flow_weight_gps = 0.0f; 
-            }
-            prev_raw_weight_g = current_raw_weight_g_for_flow_calc; 
+        }
+    }
+    last_abnormality_reset_button_state = current_abnormality_reset_button_state;
+}
 
-            filt_weight_g = weight_kf.update(raw_weight_g, dt_main_loop_s);
-            flow_weight_gps = -weight_kf.getVelocity(); 
-            if (flow_weight_gps < 0) flow_weight_gps = 0.0f; 
+// 异常检测
+void checkInfusionAbnormality(unsigned long current_time_ms) {
+    // 只在正常状态下检查输液异常
+    if (current_system_state != SystemState::NORMAL) {
+        return;
+    }
 
-            accumulated_weight_change_for_wpd_g += (prev_filt_weight_g_this_main_loop - filt_weight_g);
-
-            float dt_drip_s = dt_main_loop_s;
-            unsigned long timestamps[MAX_TIMESTAMP_QUEUE_SIZE];
-            int timestamp_count = 0;
-            while (getNextDripTimestamp(timestamps[timestamp_count]) && timestamp_count < MAX_TIMESTAMP_QUEUE_SIZE) {
-                timestamp_count++;
-            }
-            if (timestamp_count <= 1) {
-                if (timestamp_count == 1) {
-                    drip_timestamps_ms[0] = timestamps[0];
-                    timestamp_queue_head = 0;
-                    timestamp_queue_tail = 1;
-                    timestamp_queue_full = false;
-                }
-            } else {
-                int valid_intervals = 0;
-                float total_interval_ms = 0.0f;
-                for (int i = 1; i < timestamp_count; i++) {
-                    float interval_ms = timestamps[i] - timestamps[i-1];
-                    if (interval_ms > 50.0f && interval_ms < 5000.0f) {
-                        total_interval_ms += interval_ms;
-                        valid_intervals++;
-                    }
-                }
-                float measured_drip_rate = 0.0f;
-                if (valid_intervals > 0) {
-                    float avg_interval_ms = total_interval_ms / valid_intervals;
-                    measured_drip_rate = 1000.0f / avg_interval_ms;
-                }
-                drip_kf.update(measured_drip_rate, dt_drip_s, accumulated_weight_change_for_wpd_g);
-                if(system_initial_weight_set) {
-                    drip_kf.updateTotalDropsForVolumeCalc(valid_intervals);
-                }
-                drops_this_drip_cycle = valid_intervals;
-                accumulated_weight_change_for_wpd_g = 0.0f;
-                filt_drip_rate_dps = drip_kf.getFilteredDripRate();
-                flow_drip_gps = drip_kf.getFlowRateGramsPerSecond();
-                raw_drip_rate_dps = measured_drip_rate;
-                raw_flow_drip_gps = raw_drip_rate_dps * drip_kf.getCalibratedWeightPerDrop();
-                if (raw_flow_drip_gps < 0) raw_flow_drip_gps = 0.0f;
-                drip_timestamps_ms[0] = timestamps[timestamp_count-1];
-                timestamp_queue_head = 0;
-                timestamp_queue_tail = 1;
-                timestamp_queue_full = false;
-            }
-            
-            g_infusion_progress = 0.0f; 
-            if (system_initial_weight_set) {
-                float total_infusable_weight = system_initial_total_liquid_weight_g - target_empty_weight_g;
-                if (total_infusable_weight > 1e-3f) {
-                    float infused_amount = system_initial_total_liquid_weight_g - fused_remaining_weight_g;
-                    if (infused_amount < 0) infused_amount = 0;
-                    if (infused_amount > total_infusable_weight) infused_amount = total_infusable_weight;
-                    g_infusion_progress = infused_amount / total_infusable_weight;
-                }
-            }
-            if (g_infusion_progress < 0.0f) g_infusion_progress = 0.0f;
-            if (g_infusion_progress > 1.0f) g_infusion_progress = 1.0f;
-
-            if (drip_kf.isWpdCalibrating() && system_initial_weight_set) { 
-                drip_kf.calibrateWpdByTotal(filt_weight_g); 
-            }
-
-            if (wpd_long_cal_active) {
-                unsigned long elapsed_cal_time_ms = current_time_ms - wpd_long_cal_start_ms; // Use current_time_ms from loop start
-                bool duration_met = elapsed_cal_time_ms >= WPD_LONG_CAL_DURATION_MS;
-                bool drops_met = wpd_long_cal_accum_drops >= WPD_LONG_CAL_MIN_DROPS;
-
-                if (duration_met && drops_met) {
-                    Serial.printf("WPD长时校准自动完成。时长: %.1fs, 总滴数: %d, 最终WPD: %.4f g/drip\n",
-                                  elapsed_cal_time_ms / 1000.0f,
-                                  wpd_long_cal_accum_drops,
-                                  drip_kf.getCalibratedWeightPerDrop());
-                    drip_kf.stopWpdCalibration(); 
-                    wpd_long_cal_active = false; 
-                    
-                    char cal_done_msg[120];
-                    snprintf(cal_done_msg, sizeof(cal_done_msg), "EVENT:WPD_CALIBRATION_COMPLETED,WPD:%.4f,Drops:%d,DurationSec:%.1f",
-                             drip_kf.getCalibratedWeightPerDrop(), wpd_long_cal_accum_drops, elapsed_cal_time_ms / 1000.0f);
-                    if(ws_client_connected_flag) ws_server.broadcastTXT(cal_done_msg); 
-                } else if (duration_met && !drops_met) {
-                    Serial.printf("WPD长时校准时间已到 (%.1fs)，但累计滴数 (%d) 未达目标 (%d)。可选择手动停止或等待更多滴数。\n",
-                                  elapsed_cal_time_ms / 1000.0f, wpd_long_cal_accum_drops, WPD_LONG_CAL_MIN_DROPS);
-                }
-            }
-
-            if(system_initial_weight_set){
-                remaining_weight_drip_calc_g = drip_kf.getRemainingWeightByDropsG();
-            } else {
-                remaining_weight_drip_calc_g = filt_weight_g; 
-            }
-
-            unsigned long drip_total_drops_val = drip_kf.total_drops_for_volume_calc;
-            float drip_initial_weight_val = drip_kf.known_initial_total_weight_g;
-            float wpd_cumulative_val = 0.0f;
-            if (drip_total_drops_val > 0) {
-                wpd_cumulative_val = (drip_initial_weight_val - filt_weight_g) / drip_total_drops_val;
-            }
-
-            flow_fusion.update(flow_weight_gps, flow_drip_gps, filt_weight_g, remaining_weight_drip_calc_g, dt_main_loop_s);
-            fused_flow_rate_gps = flow_fusion.getFusedFlowRateGps();
-            if (fused_flow_rate_gps < 0) fused_flow_rate_gps = 0.0f; 
-            fused_remaining_weight_g = flow_fusion.getFusedRemainingWeightG();
-            if (fused_remaining_weight_g < 0) fused_remaining_weight_g = 0.0f;
-
-            float remaining_weight_to_infuse_fused = fused_remaining_weight_g - target_empty_weight_g;
-            if (remaining_weight_to_infuse_fused < 0) remaining_weight_to_infuse_fused = 0.0f; 
-
-            float base_remaining_time_s = 0.0f;
-            if (fused_flow_rate_gps > 1e-5f) {
-                base_remaining_time_s = remaining_weight_to_infuse_fused / fused_flow_rate_gps;
-            } else {
-                base_remaining_time_s = (remaining_weight_to_infuse_fused <= 0.01f ? 0.0f : 999999.0f);
-            }
-            remaining_time_s = base_remaining_time_s; // Simplified: removed coef adjustment for now
-
-            if (remaining_time_s < 0) remaining_time_s = 0.0f;
-            if (remaining_time_s > 999999.0f) remaining_time_s = 999999.0f; 
-
-            remaining_time_raw_weight_s = calculate_specific_remaining_time(raw_weight_g, target_empty_weight_g, raw_flow_weight_gps);
-            remaining_time_filt_weight_s = calculate_specific_remaining_time(filt_weight_g, target_empty_weight_g, flow_weight_gps);
-            remaining_time_raw_drip_s = calculate_specific_remaining_time(remaining_weight_drip_calc_g, target_empty_weight_g, raw_flow_drip_gps);
-            remaining_time_filt_drip_s = calculate_specific_remaining_time(remaining_weight_drip_calc_g, target_empty_weight_g, flow_drip_gps);
-
-            if (system_initial_weight_set) {
-                g_oled_infused_progress_percent = g_infusion_progress * 100.0f;
-            } else {
-                g_oled_infused_progress_percent = 0.0f; 
-            }
-            g_oled_flow_rate_mlh = 0.0f;
-            float current_density = drip_kf.getCurrentLiquidDensity(); 
-            if (current_density > 1e-6f) { 
-                 g_oled_flow_rate_mlh = (fused_flow_rate_gps / current_density) * 3600.0f;
-            }
-            if (g_oled_flow_rate_mlh < 0) g_oled_flow_rate_mlh = 0;
-
-            g_oled_remaining_time_min = 0;
-            if (remaining_time_s > 0 && remaining_time_s < (3600*99)) { 
-                g_oled_remaining_time_min = (long)(remaining_time_s / 60.0f);
-            } else if (fused_remaining_weight_g <= target_empty_weight_g + 1.0f && fabsf(fused_flow_rate_gps) < 0.001f){
-                g_oled_remaining_time_min = 0; 
-            } else {
-                g_oled_remaining_time_min = -1; 
-            }
-            updateOledDisplay(); 
-            
-            char serial_buf_debug[450]; 
-            snprintf(serial_buf_debug, sizeof(serial_buf_debug),
-                     "%.2f,%.2f,%.2f,%.4f,%.4f,%u,%.2f,%.2f,%.4f,%.4f,%.4f,%d,%.2f,%lu,%.5f,%.4f,%.2f,%.0f,%.0f,%.0f,%.0f",
-                     current_time_ms / 1000.0f,raw_weight_g,filt_weight_g,raw_flow_weight_gps,flow_weight_gps,
-                     drops_this_drip_cycle,raw_drip_rate_dps,filt_drip_rate_dps,raw_flow_drip_gps,flow_drip_gps,
-                     remaining_weight_drip_calc_g,drip_kf.isWpdCalibrating() ? 1 : 0,drip_initial_weight_val,
-                     drip_total_drops_val,wpd_cumulative_val,fused_flow_rate_gps,fused_remaining_weight_g,remaining_time_s,
-                     remaining_time_raw_weight_s,remaining_time_filt_weight_s,remaining_time_raw_drip_s);
-            Serial.println(serial_buf_debug);
-
+    // 检查是否到达检测间隔
+    if (current_time_ms - last_abnormality_check_time_ms >= ABNORMALITY_CHECK_INTERVAL_MS) {
+        // 检查是否超过无滴落超时时间
+        if (current_time_ms - last_drip_detected_time_ms >= NO_DRIP_TIMEOUT_MS) {
+            infusion_abnormal = true;
+            current_system_state = SystemState::INFUSION_ERROR;
+            Serial.println("警告：检测到输液异常（无滴落）");
             if (wifi_connected_flag && ws_client_connected_flag) {
-                float ws_progress_percent_to_send = -1.0f; 
-                if (system_initial_weight_set) {
-                    ws_progress_percent_to_send = g_infusion_progress * 100.0f; 
-                }
-                char serial_buf_ws[450];
-                snprintf(serial_buf_ws, sizeof(serial_buf_ws), 
-                         "%lu,%.2f,%.2f,%.4f,%.4f,%u,%.2f,%.2f,%.4f,%.4f,%.4f,%d,%d,%.2f,%.4f,%.2f,%.0f,%.0f,%.0f,%.0f,%.0f,%lu,%.2f,%.5f,%.1f",
-                         current_time_ms,raw_weight_g,filt_weight_g,raw_flow_weight_gps,flow_weight_gps,
-                         drops_this_drip_cycle,raw_drip_rate_dps,filt_drip_rate_dps,raw_flow_drip_gps,flow_drip_gps,
-                         drip_kf.getCalibratedWeightPerDrop(),drip_kf.isWpdCalibrating() ? 1 : 0,wpd_long_cal_active ? 1 : 0,
-                         remaining_weight_drip_calc_g,fused_flow_rate_gps,fused_remaining_weight_g,
-                         remaining_time_raw_weight_s,remaining_time_filt_weight_s,remaining_time_raw_drip_s,remaining_time_filt_drip_s,
-                         remaining_time_s,drip_total_drops_val,drip_initial_weight_val,wpd_cumulative_val,ws_progress_percent_to_send);
-                ws_server.broadcastTXT(serial_buf_ws); 
+                ws_server.broadcastTXT("ALERT:INFUSION_ABNORMALITY_DETECTED");
             }
-            // --- END OF EXISTING MAIN PROCESSING LOGIC ---
+        }
+        last_abnormality_check_time_ms = current_time_ms;
+    }
+}
+
+// 快速收敛模式处理
+void handleFastConvergenceMode(unsigned long current_time_ms) {
+    static bool has_printed_warning = false;
+    
+    // 检查是否超过快速收敛时间（60秒）
+    if (current_time_ms - fast_convergence_start_ms >= FAST_CONVERGENCE_DURATION_MS) {
+        if (!has_printed_warning) {
+            Serial.println("快速收敛模式已超过60秒，强制退出");
+            has_printed_warning = true;
+        }
+        
+        // 恢复原始滤波器参数
+        weight_kf.setMeasurementNoise(original_kf_weight_R_noise);
+        drip_kf.setDripRateMeasurementNoise(original_drip_kf_R_drip_rate_noise);
+        drip_kf.setWpdMeasurementNoise(original_drip_kf_R_wpd_noise);
+        flow_fusion.setFlowMeasurementNoises(original_fusion_R_weight_flow, original_fusion_R_drip_flow);
+        flow_fusion.setWeightMeasurementNoises(original_fusion_R_weight_weight, original_fusion_R_drip_weight);
+        
+        // 退出快速收敛模式
+        fast_convergence_mode = false;
+        current_system_state = SystemState::NORMAL;
+        has_printed_warning = false;  // 重置警告标志
+        
+        // 通知WebSocket客户端
+        if (wifi_connected_flag && ws_client_connected_flag) {
+            ws_server.broadcastTXT("ALERT:Fast convergence mode ended");
+        }
+        
+        // 更新显示
+        updateOledDisplay();
+    }
+}
+
+// LED状态更新
+void updateLedStatus() {
+    // 根据系统状态更新LED颜色
+    switch (current_system_state) {
+        case SystemState::INITIALIZING:
+            // 初始化中：黄色
+            pixels.setPixelColor(0, NEO_COLOR_YELLOW);
+            break;
+        case SystemState::INIT_ERROR:
+            // 系统异常（初始化异常）：红色常亮
+            pixels.setPixelColor(0, NEO_COLOR_RED);
+            break;
+        case SystemState::NORMAL:
+            // 正常运行：绿色
+            pixels.setPixelColor(0, NEO_COLOR_GREEN);
+            break;
+        case SystemState::INFUSION_ERROR:
+            // 输液异常：红色闪烁
+            if ((millis() / 500) % 2 == 0) {
+                pixels.setPixelColor(0, NEO_COLOR_RED);
+            } else {
+                pixels.setPixelColor(0, NEO_COLOR_OFF);
+            }
+            break;
+        case SystemState::FAST_CONVERGENCE:
+            // 快速收敛模式：蓝色
+            pixels.setPixelColor(0, NEO_COLOR_BLUE);
+            break;
+    }
+    pixels.show();
+}
+
+// 主处理逻辑
+void handleMainProcessing(unsigned long current_time_ms) {
+    float dt_main_loop_s = (current_time_ms - last_loop_run_ms) / 1000.0f;
+
+    if (dt_main_loop_s >= (MAIN_LOOP_INTERVAL_MS / 1000.0f)) {
+        last_loop_run_ms = current_time_ms;
+        
+        // 重量传感器处理
+        handleWeightSensor();
+        
+        // 滴速处理
+        handleDripRate(dt_main_loop_s);
+        
+        // 数据融合处理
+        handleDataFusion(dt_main_loop_s);
+        
+        // 显示更新
+        updateDisplay();
+        
+        // 数据输出
+        outputData(current_time_ms);
+    }
+}
+
+// 重量传感器处理
+void handleWeightSensor() {
+    float current_raw_weight_g_for_flow_calc = 0.0f; 
+    float prev_filt_weight_g_this_main_loop = filt_weight_g; 
+    
+    if (scale_sensor.is_ready()) { 
+        float gross_weight_reading_g = scale_sensor.get_units(5); 
+        raw_weight_g = gross_weight_reading_g - 12.0f;    
+        current_raw_weight_g_for_flow_calc = raw_weight_g; 
+        if ((fabsf(raw_weight_g) > 2000.0f && fabsf(prev_filt_weight_g_this_main_loop) < 1000.0f) || 
+            isnan(raw_weight_g) || isinf(raw_weight_g)) {
+            Serial.printf("警告: HX711读数 %.2f g 异常! 使用上一滤波值 %.2f g 代替。\n", 
+                         raw_weight_g, prev_filt_weight_g_this_main_loop);
+            raw_weight_g = prev_filt_weight_g_this_main_loop; 
+        }
+    } else {
+        raw_weight_g = prev_filt_weight_g_this_main_loop; 
+        current_raw_weight_g_for_flow_calc = prev_raw_weight_g; 
+        Serial.println("警告: HX711 传感器未就绪!");
+    }
+    
+    float dt_main_loop_s = (millis() - last_loop_run_ms) / 1000.0f;
+    if (dt_main_loop_s > 1e-5f) {
+        raw_flow_weight_gps = (prev_raw_weight_g - current_raw_weight_g_for_flow_calc) / dt_main_loop_s;
+    } else {
+        raw_flow_weight_gps = 0.0f;
+    }
+    
+    if (raw_flow_weight_gps < 0) {
+        raw_flow_weight_gps = 0.0f;
+    }
+    
+    prev_raw_weight_g = current_raw_weight_g_for_flow_calc; 
+    filt_weight_g = weight_kf.update(raw_weight_g, dt_main_loop_s);
+    flow_weight_gps = -weight_kf.getVelocity(); 
+    if (flow_weight_gps < 0) flow_weight_gps = 0.0f;
+}
+
+// 滴速处理
+void handleDripRate(float dt_main_loop_s) {
+    accumulated_weight_change_for_wpd_g += (prev_filt_weight_g - filt_weight_g);
+
+    unsigned long timestamps[MAX_TIMESTAMP_QUEUE_SIZE];
+    int timestamp_count = 0;
+    while (getNextDripTimestamp(timestamps[timestamp_count]) && timestamp_count < MAX_TIMESTAMP_QUEUE_SIZE) {
+        timestamp_count++;
+    }
+
+    if (timestamp_count <= 1) {
+        if (timestamp_count == 1) {
+            drip_timestamps_ms[0] = timestamps[0];
+            timestamp_queue_head = 0;
+            timestamp_queue_tail = 1;
+            timestamp_queue_full = false;
+        }
+    } else {
+        int valid_intervals = 0;
+        float total_interval_ms = 0.0f;
+        for (int i = 1; i < timestamp_count; i++) {
+            float interval_ms = timestamps[i] - timestamps[i-1];
+            if (interval_ms > 50.0f && interval_ms < 5000.0f) {
+                total_interval_ms += interval_ms;
+                valid_intervals++;
+            }
+        }
+
+        float measured_drip_rate = 0.0f;
+        if (valid_intervals > 0) {
+            float avg_interval_ms = total_interval_ms / valid_intervals;
+            measured_drip_rate = 1000.0f / avg_interval_ms;
+        }
+
+        drip_kf.update(measured_drip_rate, dt_main_loop_s, accumulated_weight_change_for_wpd_g);
+        if(system_initial_weight_set) {
+            drip_kf.updateTotalDropsForVolumeCalc(valid_intervals);
+        }
+
+        drops_this_drip_cycle = valid_intervals;
+        accumulated_weight_change_for_wpd_g = 0.0f;
+        filt_drip_rate_dps = drip_kf.getFilteredDripRate();
+        flow_drip_gps = drip_kf.getFlowRateGramsPerSecond();
+        raw_drip_rate_dps = measured_drip_rate;
+        raw_flow_drip_gps = raw_drip_rate_dps * drip_kf.getCalibratedWeightPerDrop();
+        if (raw_flow_drip_gps < 0) raw_flow_drip_gps = 0.0f;
+
+        drip_timestamps_ms[0] = timestamps[timestamp_count-1];
+        timestamp_queue_head = 0;
+        timestamp_queue_tail = 1;
+        timestamp_queue_full = false;
+    }
+}
+
+// 数据融合处理
+void handleDataFusion(float dt_main_loop_s) {
+    // 计算输液进度
+    g_infusion_progress = 0.0f; 
+    if (system_initial_weight_set) {
+        float total_infusable_weight = system_initial_total_liquid_weight_g - target_empty_weight_g;
+        if (total_infusable_weight > 1e-3f) {
+            float infused_amount = system_initial_total_liquid_weight_g - fused_remaining_weight_g;
+            if (infused_amount < 0) infused_amount = 0;
+            if (infused_amount > total_infusable_weight) infused_amount = total_infusable_weight;
+            g_infusion_progress = infused_amount / total_infusable_weight;
+        }
+    }
+    if (g_infusion_progress < 0.0f) g_infusion_progress = 0.0f;
+    if (g_infusion_progress > 1.0f) g_infusion_progress = 1.0f;
+
+    // WPD校准处理
+    if (drip_kf.isWpdCalibrating() && system_initial_weight_set) { 
+        drip_kf.calibrateWpdByTotal(filt_weight_g); 
+    }
+
+    // WPD长时间校准处理
+    handleWpdLongCalibration();
+
+    // 计算剩余重量
+    if(system_initial_weight_set) {
+        remaining_weight_drip_calc_g = drip_kf.getRemainingWeightByDropsG();
+    } else {
+        remaining_weight_drip_calc_g = filt_weight_g; 
+    }
+
+    // 数据融合更新
+    flow_fusion.update(flow_weight_gps, flow_drip_gps, filt_weight_g, remaining_weight_drip_calc_g, dt_main_loop_s);
+    fused_flow_rate_gps = flow_fusion.getFusedFlowRateGps();
+    if (fused_flow_rate_gps < 0) fused_flow_rate_gps = 0.0f; 
+    fused_remaining_weight_g = flow_fusion.getFusedRemainingWeightG();
+    if (fused_remaining_weight_g < 0) fused_remaining_weight_g = 0.0f;
+
+    // 计算剩余时间
+    calculateRemainingTime();
+}
+
+// WPD长时间校准处理
+void handleWpdLongCalibration() {
+    if (wpd_long_cal_active) {
+        unsigned long elapsed_cal_time_ms = millis() - wpd_long_cal_start_ms;
+        bool duration_met = elapsed_cal_time_ms >= WPD_LONG_CAL_DURATION_MS;
+        bool drops_met = wpd_long_cal_accum_drops >= WPD_LONG_CAL_MIN_DROPS;
+
+        if (duration_met && drops_met) {
+            Serial.printf("WPD长时校准自动完成。时长: %.1fs, 总滴数: %d, 最终WPD: %.4f g/drip\n",
+                          elapsed_cal_time_ms / 1000.0f,
+                          wpd_long_cal_accum_drops,
+                          drip_kf.getCalibratedWeightPerDrop());
+            drip_kf.stopWpdCalibration(); 
+            wpd_long_cal_active = false; 
             
-            // --- NeoPixel LED Update for Normal Operation (blinking) ---  REMOVED OLD LOGIC
-            // uint32_t base_color_for_blink;
-            // if (system_initial_weight_set && g_infusion_progress >= 0.9f) { // Ensure progress is valid before using it
-            //     base_color_for_blink = NEO_COLOR_YELLOW;
-            // } else if (drip_kf.isWpdCalibrating() || wpd_long_cal_active) {
-            //     base_color_for_blink = NEO_COLOR_BLUE;
-            // } else {
-            //     base_color_for_blink = NEO_COLOR_GREEN;
-            // }
+            char cal_done_msg[120];
+            snprintf(cal_done_msg, sizeof(cal_done_msg), 
+                     "EVENT:WPD_CALIBRATION_COMPLETED,WPD:%.4f,Drops:%d,DurationSec:%.1f",
+                     drip_kf.getCalibratedWeightPerDrop(), wpd_long_cal_accum_drops, 
+                     elapsed_cal_time_ms / 1000.0f);
+            if(ws_client_connected_flag) ws_server.broadcastTXT(cal_done_msg); 
+        } else if (duration_met && !drops_met) {
+            Serial.printf("WPD长时校准时间已到 (%.1fs)，但累计滴数 (%d) 未达目标 (%d)。\n",
+                          elapsed_cal_time_ms / 1000.0f, wpd_long_cal_accum_drops, 
+                          WPD_LONG_CAL_MIN_DROPS);
+        }
+    }
+}
 
-            // neo_led_state_is_on = !neo_led_state_is_on; // Toggle state each MAIN_LOOP_INTERVAL
-            // if (neo_led_state_is_on) {
-            //     pixels.setPixelColor(0, base_color_for_blink);
-            // } else {
-            //     pixels.setPixelColor(0, NEO_COLOR_OFF); // Off part of the blink
-            // }
-            // pixels.show();
-            // --- End NeoPixel LED Update ---
+// 计算剩余时间
+void calculateRemainingTime() {
+    float remaining_weight_to_infuse_fused = fused_remaining_weight_g - target_empty_weight_g;
+    if (remaining_weight_to_infuse_fused < 0) remaining_weight_to_infuse_fused = 0.0f; 
 
-        } // End of if (dt_main_loop_s >= (MAIN_LOOP_INTERVAL_MS / 1000.0f))
-    } // End of else (normal operation)
+    float base_remaining_time_s = 0.0f;
+    if (fused_flow_rate_gps > 1e-5f) {
+        base_remaining_time_s = remaining_weight_to_infuse_fused / fused_flow_rate_gps;
+    } else {
+        base_remaining_time_s = (remaining_weight_to_infuse_fused <= 0.01f ? 0.0f : 999999.0f);
+    }
+    remaining_time_s = base_remaining_time_s;
+
+    if (remaining_time_s < 0) remaining_time_s = 0.0f;
+    if (remaining_time_s > 999999.0f) remaining_time_s = 999999.0f; 
+
+    remaining_time_raw_weight_s = calculate_specific_remaining_time(raw_weight_g, target_empty_weight_g, raw_flow_weight_gps);
+    remaining_time_filt_weight_s = calculate_specific_remaining_time(filt_weight_g, target_empty_weight_g, flow_weight_gps);
+    remaining_time_raw_drip_s = calculate_specific_remaining_time(remaining_weight_drip_calc_g, target_empty_weight_g, raw_flow_drip_gps);
+    remaining_time_filt_drip_s = calculate_specific_remaining_time(remaining_weight_drip_calc_g, target_empty_weight_g, flow_drip_gps);
+}
+
+// 显示更新
+void updateDisplay() {
+    if (system_initial_weight_set) {
+        g_oled_infused_progress_percent = g_infusion_progress * 100.0f;
+    } else {
+        g_oled_infused_progress_percent = 0.0f; 
+    }
+
+    g_oled_flow_rate_mlh = 0.0f;
+    float current_density = drip_kf.getCurrentLiquidDensity(); 
+    if (current_density > 1e-6f) { 
+         g_oled_flow_rate_mlh = (fused_flow_rate_gps / current_density) * 3600.0f;
+    }
+    if (g_oled_flow_rate_mlh < 0) g_oled_flow_rate_mlh = 0;
+
+    g_oled_remaining_time_min = 0;
+    if (remaining_time_s > 0 && remaining_time_s < (3600*99)) { 
+        g_oled_remaining_time_min = (long)(remaining_time_s / 60.0f);
+    } else if (fused_remaining_weight_g <= target_empty_weight_g + 1.0f && fabsf(fused_flow_rate_gps) < 0.001f) {
+        g_oled_remaining_time_min = 0; 
+    } else {
+        g_oled_remaining_time_min = -1; 
+    }
+    updateOledDisplay();
+}
+
+// 数据输出
+void outputData(unsigned long current_time_ms) {
+    // 串口输出
+    char serial_buf_debug[450]; 
+    snprintf(serial_buf_debug, sizeof(serial_buf_debug),
+             "%.2f,%.2f,%.2f,%.4f,%.4f,%u,%.2f,%.2f,%.4f,%.4f,%.4f,%d,%.2f,%lu,%.5f,%.4f,%.2f,%.0f,%.0f,%.0f,%.0f",
+             current_time_ms / 1000.0f, raw_weight_g, filt_weight_g, raw_flow_weight_gps, flow_weight_gps,
+             drops_this_drip_cycle, raw_drip_rate_dps, filt_drip_rate_dps, raw_flow_drip_gps, flow_drip_gps,
+             remaining_weight_drip_calc_g, drip_kf.isWpdCalibrating() ? 1 : 0, drip_kf.known_initial_total_weight_g,
+             drip_kf.total_drops_for_volume_calc, drip_kf.getCalibratedWeightPerDrop(), fused_flow_rate_gps,
+             fused_remaining_weight_g, remaining_time_s, remaining_time_raw_weight_s,
+             remaining_time_filt_weight_s, remaining_time_raw_drip_s);
+    Serial.println(serial_buf_debug);
+
+    // WebSocket输出
+    if (wifi_connected_flag && ws_client_connected_flag) {
+        float ws_progress_percent_to_send = -1.0f; 
+        if (system_initial_weight_set) {
+            ws_progress_percent_to_send = g_infusion_progress * 100.0f; 
+        }
+        char serial_buf_ws[450];
+        snprintf(serial_buf_ws, sizeof(serial_buf_ws), 
+                 "%lu,%.2f,%.2f,%.4f,%.4f,%u,%.2f,%.2f,%.4f,%.4f,%.4f,%d,%d,%.2f,%.4f,%.2f,%.0f,%.0f,%.0f,%.0f,%.0f,%lu,%.2f,%.5f,%.1f",
+                 current_time_ms, raw_weight_g, filt_weight_g, raw_flow_weight_gps, flow_weight_gps,
+                 drops_this_drip_cycle, raw_drip_rate_dps, filt_drip_rate_dps, raw_flow_drip_gps, flow_drip_gps,
+                 drip_kf.getCalibratedWeightPerDrop(), drip_kf.isWpdCalibrating() ? 1 : 0, wpd_long_cal_active ? 1 : 0,
+                 remaining_weight_drip_calc_g, fused_flow_rate_gps, fused_remaining_weight_g,
+                 remaining_time_raw_weight_s, remaining_time_filt_weight_s, remaining_time_raw_drip_s,
+                 remaining_time_filt_drip_s, remaining_time_s, drip_kf.total_drops_for_volume_calc,
+                 drip_kf.known_initial_total_weight_g, drip_kf.getCalibratedWeightPerDrop(), ws_progress_percent_to_send);
+        ws_server.broadcastTXT(serial_buf_ws); 
+    }
 } 
