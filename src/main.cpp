@@ -160,7 +160,7 @@ constexpr int WPD_LONG_CAL_MIN_DROPS   = 30;                    // WPD 长时间
 
 // 重量相关配置
 constexpr float EQUIPMENT_TARE_G = 12.0f;                       // 传感器上固定器材的皮重
-constexpr float EMPTY_BAG_TARE_G = 70.0f;                       // 输液袋空袋时的皮重
+constexpr float EMPTY_BAG_TARE_G = 60.0f;                       // 输液袋空袋时的皮重
 const float TOTAL_TARE_G = EQUIPMENT_TARE_G + EMPTY_BAG_TARE_G; // 总皮重
 
 // 目标相关配置
@@ -1272,7 +1272,7 @@ void uploadDataToServer() {
     doc["currentRate"] = (int)(filt_drip_rate_dps * 60.0f);
     
     // 设置剩余时间（分钟，转换为整数）
-    doc["estimatedTime"] = (int)(remaining_time_s / 60.0f);
+    doc["estimatedTime"] = (int)ceil(remaining_time_s / 60.0f);
     
     // 设置系统状态
     String systemState;
