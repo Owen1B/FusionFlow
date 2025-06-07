@@ -16,7 +16,7 @@ for i, f in enumerate(csv_files):
     print(f"{i}: {os.path.basename(f)}")
 
 # 选择要读取第几个文件
-file_index = 1  # 可以修改这个索引来选择不同的文件
+file_index = 0  # 可以修改这个索引来选择不同的文件
 df = pd.read_csv(csv_files[file_index])
 print(f"\n已选择文件: {os.path.basename(csv_files[file_index])}")
 
@@ -365,8 +365,8 @@ if __name__ == '__main__':
     plt.axhline(target_empty_weight, color='black', linestyle='--', label='Target Empty Weight')
     plt.xlabel('Time (s)')
     plt.ylabel('Weight (g)')
-    plt.xlim(200, 1500)
-    plt.ylim(480, 580)
+    # plt.xlim(200, 1500)
+    # plt.ylim(480, 580)
     plt.legend()
     plt.title('Comparison of Weight Measurement Methods')
     plt.grid(True)

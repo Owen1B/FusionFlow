@@ -105,7 +105,6 @@ constexpr unsigned long ABNORMALITY_RESET_BUTTON_DEBOUNCE_MS = 200; // 按钮去
 // 硬件引脚配置
 constexpr int PIN_WATER_SENSOR   = 11;         // 水滴传感器引脚
 constexpr int NEOPIXEL_PIN       = 48;         // NeoPixel 数据引脚
-constexpr int NEOPIXEL_BRIGHTNESS = 50;        // NeoPixel 亮度（0-255）
 constexpr int PIN_I2C_SDA        = 36;         // I2C SDA 引脚（OLED）
 constexpr int PIN_I2C_SCL        = 1;         // I2C SCL 引脚（OLED）
 constexpr int PIN_HX711_DT       = 17;         // HX711 数据引脚
@@ -113,6 +112,7 @@ constexpr int PIN_HX711_SCK      = 18;         // HX711 时钟引脚
 constexpr int PIN_INIT_BUTTON    = 15;         // 初始化按钮引脚
 
 // NeoPixel 颜色配置（GRB 格式）
+constexpr int NEOPIXEL_BRIGHTNESS = 50;        // NeoPixel 亮度（0-255）
 #define NEO_COLOR_OFF     pixels.Color(0,   0,   0)     // 关闭
 #define NEO_COLOR_RED     pixels.Color(255, 0,   0)     // 红色
 #define NEO_COLOR_GREEN   pixels.Color(0,   255, 0)     // 绿色
@@ -158,8 +158,13 @@ constexpr unsigned long FAST_CONVERGENCE_DURATION_MS = 60000;  // 快速收敛�
 constexpr unsigned long WPD_LONG_CAL_DURATION_MS = 60000;       // WPD 长时间校准目标时长（ms）
 constexpr int WPD_LONG_CAL_MIN_DROPS   = 30;                    // WPD 长时间校准最小滴数
 
+// 重量相关配置
+constexpr float EQUIPMENT_TARE_G = 12.0f;                       // 传感器上固定器材的皮重
+constexpr float EMPTY_BAG_TARE_G = 70.0f;                       // 输液袋空袋时的皮重
+const float TOTAL_TARE_G = EQUIPMENT_TARE_G + EMPTY_BAG_TARE_G; // 总皮重
+
 // 目标相关配置
-float target_empty_weight_g = 70.0f;                            // 目标空袋重量（g）
+float target_empty_weight_g = 0.0f;                            // 目标空袋重量（g），现在代表纯液体重量为0
 constexpr unsigned long DEFAULT_TARGET_TOTAL_DROPS_VOLUME_CALC = 100; // 默认目标滴数
 
 // 系统参数
@@ -528,14 +533,14 @@ void performSystemReinitialization() {
     }
 
     // 读取初始重量
-    float initial_weight_reading = scale_sensor.get_units(10); // 读取10次平均值
-    initial_weight_reading = initial_weight_reading - 12.0f; // 扣除皮重
+    float gross_weight_reading = scale_sensor.get_units(10); // 读取总重
+    float initial_weight_reading = gross_weight_reading - TOTAL_TARE_G; // 扣除总皮重，得到纯液体重量
     
     // 检查重量读数是否异常
     if (isnan(initial_weight_reading) || isinf(initial_weight_reading) ||  // 检查是否为无效数
         fabsf(initial_weight_reading) > 5000.0f ||  // 检查是否超出合理范围
-        initial_weight_reading <= target_empty_weight_g + 10.0f) { // 检查是否小于空重+10g
-        Serial.printf("警告: 重新初始化时重量读数异常: %.2f，系统进入异常状态。\n", initial_weight_reading); // 打印警告
+        initial_weight_reading <= 10.0f) { // 检查纯液体重量是否小于10g
+        Serial.printf("警告: 重新初始化时纯液体重量读数异常: %.2f，系统进入异常状态。\n", initial_weight_reading); // 打印警告
         current_system_state = SystemState::INIT_ERROR; // 设置为初始化错误状态
         reinit_error_count++; // 异常计数加1
         return; // 退出函数
@@ -652,7 +657,8 @@ void setup() {
     // HX711称重传感器初始化
     scale_sensor.begin(PIN_HX711_DT, PIN_HX711_SCK);
     scale_sensor.set_scale(hx711_cal_factor); // 校准因子
-    scale_sensor.set_gain(128);               // 增益设置
+    scale_sensor.set_gain(128); // 设置增益
+    scale_sensor.set_offset(0); // 设置偏置为0
 
     // =========================
     //   中断初始化
@@ -948,7 +954,7 @@ void handleWeightSensor() {
             
             if (scale_sensor.is_ready()) { 
                 float gross_weight_reading_g = scale_sensor.get_units(5); 
-                raw_weight_g = gross_weight_reading_g - 12.0f;    
+                raw_weight_g = gross_weight_reading_g - TOTAL_TARE_G; // 得到纯液体净重
                 current_raw_weight_g_for_flow_calc = raw_weight_g; 
         if ((fabsf(raw_weight_g) > 2000.0f && fabsf(prev_filt_weight_g_this_main_loop) < 1000.0f) || 
             isnan(raw_weight_g) || isinf(raw_weight_g)) {
