@@ -54,17 +54,31 @@
 
 ```
 Smart_infusion_PIO/
-├── platformio.ini         # PlatformIO 配置文件 (板子定义, 库依赖)
-├── include/               # 自定义库头文件 (如.h)
-│   ├── DataFusion.h
-│   ├── DripKalmanFilter.h
-│   └── WeightKalmanFilter.h
+├── .pio/                  # PlatformIO 核心文件 (自动生成)
+├── .vscode/               # VSCode 工作区配置文件
+├── data/                  # 数据文件
+│   ├── collected_infusion_data/ # 采集的输液数据
+│   └── fig/                 # 图片资源
+├── docs/                  # 项目文档
+├── include/               # 项目全局头文件
 │   └── webpage.h          # 嵌入式网页HTML代码
+├── lib/                   # 项目依赖的私有库 (当前为空)
+├── scripts/               # 辅助脚本
 ├── src/                   # 源代码
-│   └── main.cpp           # 主程序逻辑
-├── lib/                   # 项目私有库
+│   ├── main.cpp           # 主程序逻辑
+│   ├── WeightKalmanFilter.h
+│   ├── WeightKalmanFilter.cpp
+│   ├── DripKalmanFilter.h
+│   ├── DripKalmanFilter.cpp
+│   ├── DataFusion.h
+│   └── DataFusion.cpp
 ├── test/                  # 测试代码
-└── ...
+│   ├── test_data_fusion/
+│   ├── test_drip_kf/
+│   └── test_weight_kf/
+├── .gitignore             # Git 忽略文件配置
+├── platformio.ini         # PlatformIO 配置文件 (板子定义, 库依赖)
+└── README.md              # 本文档
 ```
 
 ## 工作原理
@@ -112,7 +126,7 @@ Smart_infusion_PIO/
 ### HTTP API (数据上报)
 
 *   **方法**: `POST`
-*   **URL**: `http://114.66.55.73:31504/api/patients`
+*   **URL**: `YOUR_SERVER_API_ENDPOINT` (例如: `http://your.server.com/api/patients`)
 *   **Content-Type**: `application/json`
 *   **请求体 (Body)**:
     ```json
