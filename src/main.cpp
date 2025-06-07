@@ -163,7 +163,7 @@ constexpr float FUSION_R_DRIP_WEIGHT    = 1.0f;             // 融合滴速重�
 constexpr unsigned long MAIN_LOOP_INTERVAL_MS         = 1000;   // 主循环周期（ms）
 constexpr unsigned long INIT_BUTTON_DEBOUNCE_MS      = 200;    // 初始化按钮去抖时间
 constexpr unsigned long FAST_CONVERGENCE_DURATION_MS = 60000;  // 快速收敛时长
-constexpr unsigned long MOTOR_RUN_DURATION_MS = 1000; // 电机转动时长
+constexpr unsigned long MOTOR_RUN_DURATION_MS = 2000; // 电机转动时长
 
 // WPD 长时间校准配置
 constexpr unsigned long WPD_LONG_CAL_DURATION_MS = 60000;       // WPD 长时间校准目标时长（ms）
