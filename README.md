@@ -51,6 +51,10 @@ graph TD
     style L fill:#9cf,stroke:#333,stroke-width:2px
 ```
 
+## 界面预览
+
+![护士站监控中心](data/fig/web_ui_screenshot.png)
+
 ## 主要功能
 
 *   **多传感器数据采集**:
