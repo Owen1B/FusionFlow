@@ -1,16 +1,50 @@
 # 智能输液监护系统 (Smart Infusion PIO)
 
-[![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](https://opensource.org/licenses/ISC)
+<p align="center">
+  <img src="https://img.shields.io/badge/PlatformIO-Build-orange" />
+  <img src="https://img.shields.io/badge/Language-C%2B%2B%20%26%20JS-blue" />
+  <img src="https://img.shields.io/badge/Node.js-16.x-green" />
+  <img src="https://img.shields.io/badge/React-18.x-61DAFB?logo=react" />
+  <a href="https://opensource.org/licenses/ISC"><img src="https://img.shields.io/badge/License-ISC-blue.svg" /></a>
+</p>
 
 这是一个基于 PlatformIO 开发的智能输液监护系统项目。该系统通过高精度传感器实时监测输液过程，利用卡尔曼滤波和数据融合算法提供准确的流速和剩余量预测，并通过多种方式（OLED屏幕、Web界面、云端API）进行数据显示和异常报警。
 
-## 项目亮点
+## 目录
+- [智能输液监护系统 (Smart Infusion PIO)](#智能输液监护系统-smart-infusion-pio)
+  - [目录](#目录)
+  - [🚀 项目亮点](#-项目亮点)
+  - [🏗️ 系统架构](#️-系统架构)
+  - [✨ 界面预览](#-界面预览)
+  - [📋 主要功能](#-主要功能)
+  - [📁 项目结构](#-项目结构)
+  - [🖥️ 服务器端 (护士站监控中心)](#️-服务器端-护士站监控中心)
+    - [技术栈](#技术栈)
+    - [部署与运行](#部署与运行)
+    - [API 核心端点](#api-核心端点)
+  - [🛠️ 安装与部署 (嵌入式设备)](#️-安装与部署-嵌入式设备)
+    - [硬件清单](#硬件清单)
+    - [软件与库](#软件与库)
+    - [部署步骤](#部署步骤)
+  - [📖 使用说明](#-使用说明)
+    - [1. 硬件安装与准备](#1-硬件安装与准备)
+    - [2. 开机与初始化](#2-开机与初始化)
+    - [3. 正常监控](#3-正常监控)
+    - [4. 状态与告警](#4-状态与告警)
+    - [5. 异常与恢复](#5-异常与恢复)
+    - [6. 结束与重启](#6-结束与重启)
+  - [🗺️ 未来规划 (Roadmap)](#️-未来规划-roadmap)
+  - [📝 许可证](#-许可证)
+
+---
+
+## 🚀 项目亮点
 
 - **双重传感与数据融合**：同时采用重量和滴速两种维度进行测量，并通过扩展卡尔曼滤波(EKF)进行数据融合，极大地提高了输液速度和剩余量的测量精度与鲁棒性，有效避免了单一传感器因环境干扰或自身缺陷导致的测量失败。
 - **全栈式监控方案**：项目不仅包含嵌入式设备端的固件，还提供了一套完整的前后端分离的Web应用（护士站监控中心），实现了从数据采集、处理、传输到可视化监控的闭环。
 - **动态自适应滤波**：系统内置"快速收敛模式"，在输液初期采用更激进的滤波器参数，使读数能迅速稳定。输液稳定后则切换回正常参数，保证了测量的平稳性，兼顾了快速响应和稳定测量的双重需求。
 
-## 系统架构
+## 🏗️ 系统架构
 
 ```mermaid
 graph TD
@@ -25,8 +59,8 @@ graph TD
     end
 
     subgraph "云服务器"
-        I["Backend API <br/> (Node.js/Python)"]
-        J["Database"]
+        I["Backend API <br/> (Node.js)"]
+        J["Database (SQLite)"]
         K["Frontend <br/> (React Web App)"]
         
         I <--> J;
@@ -51,11 +85,11 @@ graph TD
     style L fill:#9cf,stroke:#333,stroke-width:2px
 ```
 
-## 界面预览
+## ✨ 界面预览
 
 ![护士站监控中心](data/fig/web_ui_screenshot.png)
 
-## 主要功能
+## 📋 主要功能
 
 *   **多传感器数据采集**:
     *   **重量传感器 (HX711)**: 实时测量输液袋的重量，精确到克。
@@ -80,30 +114,7 @@ graph TD
     *   **物理按键**: 提供"初始化/复位"和"异常清除"两个物理按键，方便现场操作。
     *   **Web指令**: 可通过Web界面发送指令，如启动/停止WPD校准、设置液体总量等。
 
-## 硬件清单
-
-| 组件             | 型号/规格                      | 连接引脚 (ESP32)               |
-| ---------------- | ------------------------------ | ------------------------------ |
-| 微控制器         | ESP32-S3 或类似开发板          | -                              |
-| 显示屏           | 0.96寸 I2C OLED (SSD1306)      | SDA: `36`, SCL: `1`            |
-| 重量传感器模块   | HX711 模块 + 压力传感器        | DT: `17`, SCK: `18`            |
-| 滴速传感器       | 对射式红外传感器或类似装置     | DATA: `11` (中断引脚)          |
-| 状态指示灯       | NeoPixel RGB LED (WS2812B)     | DATA: `48`                     |
-| 物理按键         | 瞬时轻触开关 x2                | 初始化: `15`, 异常复位: `0`    |
-
-## 软件与库
-
-*   **开发环境**: [PlatformIO IDE](https://platformio.org/)
-*   **框架**: Arduino
-*   **主要库**:
-    *   `WiFi`, `WiFiClient`, `HTTPClient`: 用于WiFi连接和网络通信。
-    *   `WebSocketsServer`: 用于实现与Web界面的实时双向通信。
-    *   `U8g2lib`: 强大的OLED显示库。
-    *   `Adafruit_NeoPixel`: NeoPixel LED驱动库。
-    *   `HX711`: HX711称重传感器库。
-    *   `ArduinoJson`: 高效的JSON序列化/反序列化库，用于API数据交互。
-
-## 项目结构
+## 📁 项目结构
 
 ```
 Smart_infusion_PIO/
@@ -118,95 +129,19 @@ Smart_infusion_PIO/
 ├── lib/                   # 项目依赖的私有库 (当前为空)
 ├── scripts/               # 辅助脚本
 ├── src/                   # 源代码
-│   ├── main.cpp           # 主程序逻辑
-│   ├── WeightKalmanFilter.h
-│   ├── WeightKalmanFilter.cpp
-│   ├── DripKalmanFilter.h
-│   ├── DripKalmanFilter.cpp
-│   ├── DataFusion.h
-│   └── DataFusion.cpp
+│   └── main.cpp           # 主程序逻辑
 ├── test/                  # 测试代码
-│   ├── test_data_fusion/
-│   ├── test_drip_kf/
-│   └── test_weight_kf/
+├── server/                # 服务器端全栈应用
+│   ├── backend/
+│   └── frontend/
 ├── .gitignore             # Git 忽略文件配置
-├── platformio.ini         # PlatformIO 配置文件 (板子定义, 库依赖)
+├── platformio.ini         # PlatformIO 配置文件
 └── README.md              # 本文档
 ```
 
-## 工作原理
-
-系统的工作流程如下：
-
-1.  **初始化**:
-    *   系统启动，初始化硬件（OLED, NeoPixel, HX711）。
-    *   连接到指定的 WiFi 网络，并启动 WebSocket 和 HTTP 服务器。
-    *   执行一次`performSystemReinitialization()`，读取输液袋的初始重量，并将其作为基准。
-    *   进入为时60秒的 **快速收敛模式**，以快速获得稳定的初始读数。
-
-2.  **数据采集与处理**:
-    *   **重量数据**: `handleWeightSensor()`函数在主循环中定期从 HX711 读取重量数据。原始数据首先经过异常值检测，然后送入 `WeightKalmanFilter` 进行滤波，输出平滑后的重量 `filt_weight_g` 和由重量变化计算出的流速 `flow_weight_gps`。
-    *   **滴速数据**: `onWaterDropIsr()`中断服务函数捕捉每一次滴落，将时间戳存入一个循环队列。`handleDripRate()`函数从队列中取出时间戳，计算瞬时滴速 `raw_drip_rate_dps`，然后送入 `DripKalmanFilter` 进行滤波，得到平滑后的滴速 `filt_drip_rate_dps` 和基于WPD估算的流速 `flow_drip_gps`。
-
-3.  **数据融合**:
-    *   `handleDataFusion()`函数接收来自两个卡尔曼滤波器的流速和重量估算值。
-    *   `DataFusion` 模块（一个扩展卡尔曼滤波器）将这两个来源的数据进行融合，得到最终的融合流速 `fused_flow_rate_gps` 和融合剩余重量 `fused_remaining_weight_g`。这提供了比单一数据源更准确和鲁棒的结果。
-
-4.  **状态更新与输出**:
-    *   根据融合后的数据计算预计剩余时间 `remaining_time_s`。
-    *   通过 `updateDisplay()` 更新OLED屏幕上的显示内容。
-    *   通过 `updateLedStatus()` 更新LED状态灯的颜色。
-    *   `outputData()` 函数将详细的调试数据打印到串口，并通过WebSocket广播到所有连接的Web客户端。
-    *   `uploadDataToServer()` 函数每10秒将关键数据（总容量、剩余容量、流速、剩余时间、系统状态等）打包成JSON格式，通过HTTP POST请求发送到指定的云端API。
-
-5.  **异常处理**:
-    *   `checkInfusionAbnormality()` 函数在 **正常模式** 下持续监控，如果在 `NO_DRIP_TIMEOUT_MS` (默认10秒) 内没有检测到滴落，系统状态会切换到 `INFUSION_ERROR`，LED变为红色闪烁，并立即上报异常状态。
-
-## API与通信协议
-
-### WebSocket
-
-*   **端口**: 81
-*   **服务器 -> 客户端**: 服务器以CSV格式的字符串形式，高频（约每秒一次）广播实时数据。格式如下：
-    ```
-    currentTime,rawWeight,filtWeight,rawFlowW,filtFlowW,drips,rawDps,filtDps,rawFlowD,filtFlowD,wpd,wpdCal,wpdLongCal,remWeightD,fusedFlow,fusedWeight,remTimeRawW,remTimeFiltW,remTimeRawD,remTimeFiltD,remTime,totalDrops,initWeight,wpd,progress,state
-    ```
-*   **客户端 -> 服务器**: 客户端可以发送以下字符串命令：
-    *   `CALIBRATE_WPD_START`: 启动WPD长时校准。
-    *   `CALIBRATE_WPD_STOP`: 手动停止WPD长时校准。
-    *   `SET_TOTAL_VOLUME:<volume>`: 设置液体总量（例如 `SET_TOTAL_VOLUME:500`）。
-
-### HTTP API (数据上报)
-
-*   **方法**: `POST`
-*   **URL**: `YOUR_SERVER_API_ENDPOINT` (例如: `http://your.server.com/api/patients`)
-*   **Content-Type**: `application/json`
-*   **请求体 (Body)**:
-    ```json
-    {
-      "deviceId": "001",
-      "totalVolume": 500,
-      "remainingVolume": 250,
-      "currentRate": 60,
-      "estimatedTime": 25,
-      "systemState": "NORMAL",
-      "autoClamp": 0
-    }
-    ```
-    *   `totalVolume`: 总容量 (ml)
-    *   `remainingVolume`: 剩余容量 (ml)
-    *   `currentRate`: 当前滴速 (滴/分钟)
-    *   `estimatedTime`: 预计剩余时间 (分钟)
-    *   `systemState`: 系统状态 (字符串)
-    *   `autoClamp`: 夹断状态 (0: 未夹断, 1: 已夹断)
-
-## 服务器端 (护士站监控中心)
+## 🖥️ 服务器端 (护士站监控中心)
 
 `server` 目录中包含一个独立的全栈Web应用，作为护士站的输液监控中心。
-
-### 概述
-
-该应用提供了一个可视化的Web界面，用于集中监控所有连接的智能输液设备的实时状态。它由一个后端API服务和一个前端React应用组成。
 
 ### 技术栈
 
@@ -219,24 +154,6 @@ Smart_infusion_PIO/
     - **数据库**: SQLite
 - **部署**:
     - **进程管理**: 使用 `tmux` 对前后端服务进行会话管理。
-
-### 目录结构
-
-```
-server/
-├── backend/         # 后端服务代码 (Node.js)
-│   └── infusion-monitor.db  # SQLite 数据库文件
-├── frontend/        # 前端React应用代码
-│   ├── build/         # 生产环境构建输出
-│   ├── public/        # 静态资源 (如 index.html)
-│   ├── src/           # React 源码
-│   ├── package.json   # 前端依赖配置
-│   └── tailwind.config.js # Tailwind CSS 配置文件
-├── App.js           # (应位于 frontend/src/) 前端主组件
-├── package.json     # (顶层) Node.js项目配置文件
-├── API.md           # 详细的后端API文档
-└── start.sh         # 服务启动脚本 (使用tmux)
-```
 
 ### 部署与运行
 
@@ -258,7 +175,8 @@ server/
 
 更详细的API说明、请求/响应格式和字段定义，请参阅 [`server/API.md`](./server/API.md) 文件。
 
-## 安装与部署
+
+## 🛠️ 安装与部署 (嵌入式设备)
 
 本节主要介绍 **嵌入式设备** 的安装与部署。关于服务器端的部署，请参考"服务器端"章节。
 
@@ -303,7 +221,7 @@ server/
 7.  点击 PlatformIO 工具栏上的 **Upload** 按钮编译并上传固件。
 8.  点击 **Monitor** 按钮打开串口监视器查看设备输出。
 
-## 使用说明
+## 📖 使用说明
 
 ### 1. 硬件安装与准备
 *   **固定设备**: 将整个设备稳固地放置在输液架上。
@@ -348,3 +266,16 @@ server/
     1.  取下空袋，挂上新的输液袋。
     2.  按一下正面的 **初始化按键**。
     3.  系统会重新执行初始化流程，开始一次全新的输液监控。
+
+---
+
+## 🗺️ 未来规划 (Roadmap)
+
+- [ ] **用户认证系统**: 为护士站Web应用增加登录和权限管理功能。
+- [ ] **历史数据分析**: 增加历史数据查询和图表分析功能，帮助回顾和分析输液过程。
+- [ ] **功耗优化**: 针对ESP32设备，在待机或输液平稳期进入低功耗模式，延长电池续航。
+- [ ] **物理夹管器集成**: 完成`auto_clamp`功能的硬件部分，实现真正的自动夹管。
+
+## 📝 许可证
+
+该项目根据 [ISC 许可证](https://opensource.org/licenses/ISC) 授权。
