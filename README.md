@@ -204,24 +204,39 @@ Smart_infusion_PIO/
 
 该应用提供了一个可视化的Web界面，用于集中监控所有连接的智能输液设备的实时状态。它由一个后端API服务和一个前端React应用组成。
 
-- **后端**: 负责接收来自所有ESP32设备的数据上报，将数据持久化存储，并通过RESTful API将数据提供给前端。
-- **前端**: 一个基于React的单页应用(SPA)，它从后端获取数据，并以动态、直观的卡片形式展示每个患者的输液进度、流速、预计剩余时间等关键信息，并对异常状态进行高亮和告警提示。
+### 技术栈
+
+- **前端**:
+    - **框架**: React.js
+    - **UI 库**: Tailwind CSS
+    - **打包工具**: Webpack (或类似工具)
+- **后端**:
+    - **运行时/框架**: Node.js + Express.js
+    - **数据库**: SQLite
+- **部署**:
+    - **进程管理**: 使用 `tmux` 对前后端服务进行会话管理。
 
 ### 目录结构
 
 ```
 server/
-├── backend/         # 后端服务代码 (推测为Node.js/Python)
+├── backend/         # 后端服务代码 (Node.js)
+│   └── infusion-monitor.db  # SQLite 数据库文件
 ├── frontend/        # 前端React应用代码
-├── App.js           # 前端主组件 (React)
-├── package.json     # Node.js项目配置文件
+│   ├── build/         # 生产环境构建输出
+│   ├── public/        # 静态资源 (如 index.html)
+│   ├── src/           # React 源码
+│   ├── package.json   # 前端依赖配置
+│   └── tailwind.config.js # Tailwind CSS 配置文件
+├── App.js           # (应位于 frontend/src/) 前端主组件
+├── package.json     # (顶层) Node.js项目配置文件
 ├── API.md           # 详细的后端API文档
 └── start.sh         # 服务启动脚本 (使用tmux)
 ```
 
 ### 部署与运行
 
-1.  **环境要求**: 服务器需要安装 `Node.js` (用于前端) 和 `tmux`。后端所需环境需根据 `server/backend/` 中的具体实现确定。
+1.  **环境要求**: 服务器需要安装 `Node.js` (用于前端和后端)、`npm` 和 `tmux`。
 2.  **启动服务**: 在服务器上，进入 `server` 目录并执行以下命令：
     ```bash
     bash start.sh
