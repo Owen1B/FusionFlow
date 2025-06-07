@@ -1,6 +1,56 @@
 # 智能输液监护系统 (Smart Infusion PIO)
 
+[![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](https://opensource.org/licenses/ISC)
+
 这是一个基于 PlatformIO 开发的智能输液监护系统项目。该系统通过高精度传感器实时监测输液过程，利用卡尔曼滤波和数据融合算法提供准确的流速和剩余量预测，并通过多种方式（OLED屏幕、Web界面、云端API）进行数据显示和异常报警。
+
+## 项目亮点
+
+- **双重传感与数据融合**：同时采用重量和滴速两种维度进行测量，并通过扩展卡尔曼滤波(EKF)进行数据融合，极大地提高了输液速度和剩余量的测量精度与鲁棒性，有效避免了单一传感器因环境干扰或自身缺陷导致的测量失败。
+- **全栈式监控方案**：项目不仅包含嵌入式设备端的固件，还提供了一套完整的前后端分离的Web应用（护士站监控中心），实现了从数据采集、处理、传输到可视化监控的闭环。
+- **动态自适应滤波**：系统内置"快速收敛模式"，在输液初期采用更激进的滤波器参数，使读数能迅速稳定。输液稳定后则切换回正常参数，保证了测量的平稳性，兼顾了快速响应和稳定测量的双重需求。
+- **在线WPD校准**：针对不同粘稠度的药液，支持通过Web界面进行"克/每滴(WPD)"的在线校准，增强了系统对不同输液场景的适应性。
+
+## 系统架构
+
+```mermaid
+graph TD
+    subgraph "智能输液硬件 (ESP32)"
+        A["HX711 重量传感器"] --> C{"数据处理模块"};
+        B["滴速传感器"] --> C;
+        D["物理按键"] --> C;
+        C -- "滤波 & 融合" --> E{"状态机"};
+        E --> F["OLED 显示屏"];
+        E --> G["NeoPixel LED"];
+        E --> H(("WiFi模块"));
+    end
+
+    subgraph "云服务器"
+        I["Backend API <br/> (Node.js/Python)"]
+        J["Database"]
+        K["Frontend <br/> (React Web App)"]
+        
+        I <--> J;
+        K --> I;
+    end
+    
+    subgraph "用户"
+        L["护士站监控大屏"]
+        M["设备维护人员"]
+    end
+
+    H -- "POST /api/patients <br/> (上报实时数据)" --> I;
+    I -- "GET /api/patients <br/> (获取数据)" --> K;
+    K --> L;
+    M -- "查看OLED/LED" --> F & G;
+
+    style A fill:#f9f,stroke:#333,stroke-width:2px
+    style B fill:#f9f,stroke:#333,stroke-width:2px
+    style D fill:#f9f,stroke:#333,stroke-width:2px
+    style F fill:#ccf,stroke:#333,stroke-width:2px
+    style G fill:#ccf,stroke:#333,stroke-width:2px
+    style L fill:#9cf,stroke:#333,stroke-width:2px
+```
 
 ## 主要功能
 
@@ -192,15 +242,50 @@ server/
 
 ## 安装与部署
 
+本节主要介绍 **嵌入式设备** 的安装与部署。关于服务器端的部署，请参考"服务器端"章节。
+
+### 硬件清单
+
+| 组件             | 型号/规格                      | 连接引脚 (ESP32)               |
+| ---------------- | ------------------------------ | ------------------------------ |
+| 微控制器         | ESP32-S3 或类似开发板          | -                              |
+| 显示屏           | 0.96寸 I2C OLED (SSD1306)      | SDA: `36`, SCL: `1`            |
+| 重量传感器模块   | HX711 模块 + 压力传感器        | DT: `17`, SCK: `18`            |
+| 滴速传感器       | 对射式红外传感器或类似装置     | DATA: `11` (中断引脚)          |
+| 状态指示灯       | NeoPixel RGB LED (WS2812B)     | DATA: `48`                     |
+| 物理按键         | 瞬时轻触开关 x2                | 初始化: `15`, 异常复位: `0`    |
+
+### 软件与库
+
+*   **开发环境**: [PlatformIO IDE](https://platformio.org/)
+*   **框架**: Arduino
+*   **主要库**:
+    *   `WiFi`, `WiFiClient`, `HTTPClient`: 用于WiFi连接和网络通信。
+    *   `WebSocketsServer`: 用于实现与Web界面的实时双向通信。
+    *   `U8g2lib`: 强大的OLED显示库。
+    *   `Adafruit_NeoPixel`: NeoPixel LED驱动库。
+    *   `HX711`: HX711称重传感器库。
+    *   `ArduinoJson`: 高效的JSON序列化/反序列化库，用于API数据交互。
+
+### 部署步骤
+
 1.  **安装 Visual Studio Code** 和 **PlatformIO IDE 扩展**。
 2.  克隆本项目到本地。
 3.  使用 VS Code 打开项目文件夹。
-4.  修改 `src/main.cpp` 中的WiFi配置：
+4.  修改 `src/main.cpp` 中的WiFi和服务器配置：
     ```cpp
+    // WiFi配置
     constexpr const char* WIFI_SSID  = "your_wifi_ssid";
     constexpr const char* WIFI_PASS  = "your_wifi_password";
+    // 服务器配置
+    const char* API_BASE_URL = "YOUR_API_BASE_URL"; 
     ```
 5.  修改 `platformio.ini` 文件，确保 `board` 配置与你的ESP32开发板型号匹配。
 6.  连接硬件设备。
 7.  点击 PlatformIO 工具栏上的 **Upload** 按钮编译并上传固件。
-8.  点击 **Monitor** 按钮打开串口监视器查看设备输出。 
+8.  点击 **Monitor** 按钮打开串口监视器查看设备输出。
+
+## 使用说明
+
+1.  **准备**: 将输液袋挂在称重传感器上。
+// ... existing code ...
