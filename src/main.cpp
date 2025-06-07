@@ -60,6 +60,13 @@ void performSystemReinitialization();
 // 计算总输液量函数
 void calculateTotalVolume(float initial_weight_g);
 
+// 电机控制函数
+void startMotorForward();
+void startMotorReverse();
+void stopMotor();
+void handleMotor();
+void toggleMotorState();
+
 // 主循环相关函数声明
 void handleButtonInputs(unsigned long current_time_ms);
 void checkInfusionAbnormality(unsigned long current_time_ms);
@@ -101,6 +108,7 @@ constexpr uint16_t HTTP_PORT = 80;                   // HTTP 服务器端口
 constexpr unsigned long MAX_NO_DRIP_INTERVAL_MS = 10000;   // 无滴落最大间隔（10秒）
 constexpr int PIN_ABNORMALITY_RESET_BUTTON = 0;           // 异常复位按钮 GPIO
 constexpr unsigned long ABNORMALITY_RESET_BUTTON_DEBOUNCE_MS = 200; // 按钮去抖时间
+constexpr unsigned long ABNORMALITY_RESET_BUTTON_LONG_PRESS_MS = 1000; // 长按时间
 
 // 硬件引脚配置
 constexpr int PIN_WATER_SENSOR   = 11;         // 水滴传感器引脚
@@ -110,6 +118,8 @@ constexpr int PIN_I2C_SCL        = 1;         // I2C SCL 引脚（OLED）
 constexpr int PIN_HX711_DT       = 17;         // HX711 数据引脚
 constexpr int PIN_HX711_SCK      = 18;         // HX711 时钟引脚
 constexpr int PIN_INIT_BUTTON    = 15;         // 初始化按钮引脚
+constexpr int MOTOR_PIN1 = 6;  // 电机控制引脚1
+constexpr int MOTOR_PIN2 = 7;  // 电机控制引脚2
 
 // NeoPixel 颜色配置（GRB 格式）
 constexpr int NEOPIXEL_BRIGHTNESS = 50;        // NeoPixel 亮度（0-255）
@@ -153,6 +163,7 @@ constexpr float FUSION_R_DRIP_WEIGHT    = 1.0f;             // 融合滴速重�
 constexpr unsigned long MAIN_LOOP_INTERVAL_MS         = 1000;   // 主循环周期（ms）
 constexpr unsigned long INIT_BUTTON_DEBOUNCE_MS      = 200;    // 初始化按钮去抖时间
 constexpr unsigned long FAST_CONVERGENCE_DURATION_MS = 60000;  // 快速收敛时长
+constexpr unsigned long MOTOR_RUN_DURATION_MS = 1000; // 电机转动时长
 
 // WPD 长时间校准配置
 constexpr unsigned long WPD_LONG_CAL_DURATION_MS = 60000;       // WPD 长时间校准目标时长（ms）
@@ -280,6 +291,12 @@ long g_oled_remaining_time_min = -1;                 // OLED 显示剩余分钟�
 // 系统状态
 SystemState current_system_state = SystemState::INITIALIZING;  // 当前系统状态
 
+// 电机状态
+enum class MotorDirection { FORWARD, REVERSE };
+static MotorDirection next_motor_direction = MotorDirection::FORWARD;
+static bool motor_is_running = false;
+static unsigned long motor_start_time_ms = 0;
+
 // 全局变量
 float total_volume_ml = 0.0f;  // 总输液量(ml)
 
@@ -332,7 +349,7 @@ void onWebSocketEvent(uint8_t clientNum, WStype_t type, uint8_t * payload, size_
             
         case WStype_CONNECTED: { 
             IPAddress ip = ws_server.remoteIP(clientNum);
-            Serial.printf("[%u] WebSocket客户端已连接，IP: %s\n", clientNum, ip.toString().c_str());
+            Serial.printf("[%u] WebSocket客户端已连接, IP: %s\n", clientNum, ip.toString().c_str());
             if (clientNum == 0) ws_client_connected_flag = true;
             break;
         }
@@ -341,10 +358,10 @@ void onWebSocketEvent(uint8_t clientNum, WStype_t type, uint8_t * payload, size_
             Serial.printf("[%u] 收到文本: %s\n", clientNum, payload);
             if (strcmp((char*)payload, "CALIBRATE_WPD_START") == 0) {
                 if (wpd_long_cal_active) {
-                    Serial.println("WPD校准已在进行中。");
+                    Serial.printf("WPD校准已在进行中。\n");
                     ws_server.sendTXT(clientNum, "EVENT:WPD_CALIBRATION_ALREADY_RUNNING");
                 } else {
-                    Serial.println("收到WPD校准开始命令，启动长时校准...");
+                    Serial.printf("收到WPD校准开始命令, 启动长时校准...\n");
                     drip_kf.startWpdCalibration();
                     wpd_long_cal_active = true;
                     wpd_long_cal_start_ms = millis();
@@ -353,7 +370,7 @@ void onWebSocketEvent(uint8_t clientNum, WStype_t type, uint8_t * payload, size_
                 }
             } else if (strcmp((char*)payload, "CALIBRATE_WPD_STOP") == 0) {
                 if (wpd_long_cal_active) {
-                    Serial.println("收到WPD校准手动停止命令...");
+                    Serial.printf("收到WPD校准手动停止命令...\n");
                     drip_kf.stopWpdCalibration();
                     wpd_long_cal_active = false;
                     float wpd = drip_kf.getCalibratedWeightPerDrop();
@@ -362,7 +379,7 @@ void onWebSocketEvent(uint8_t clientNum, WStype_t type, uint8_t * payload, size_
                     ws_server.sendTXT(clientNum, msg);
                     Serial.printf("WPD校准手动停止。当前WPD: %.4f g/drip\n", wpd);
                 } else {
-                    Serial.println("WPD校准未在进行中，无需停止。");
+                    Serial.printf("WPD校准未在进行中, 无需停止。\n");
                     ws_server.sendTXT(clientNum, "EVENT:WPD_CALIBRATION_NOT_RUNNING");
                 }
             } else if (strncmp((char*)payload, "SET_TOTAL_VOLUME:", 16) == 0) {
@@ -383,7 +400,7 @@ void onWebSocketEvent(uint8_t clientNum, WStype_t type, uint8_t * payload, size_
             break;
             
         case WStype_BIN: 
-            Serial.printf("[%u] 收到二进制数据，长度: %u\n", clientNum, length);
+            Serial.printf("[%u] 收到二进制数据, 长度: %u\n", clientNum, length);
             break;
             
         default:
@@ -420,8 +437,7 @@ void updateOledDisplay() {
 
 // WiFi连接处理
 void connectToWiFi() {
-    Serial.print("正在连接WiFi: ");
-    Serial.println(WIFI_SSID);
+    Serial.printf("正在连接WiFi: %s\n", WIFI_SSID);
     WiFi.begin(WIFI_SSID, WIFI_PASS);
     int tryCount = 0;
     while (WiFi.status() != WL_CONNECTED && tryCount < 20) {
@@ -431,12 +447,11 @@ void connectToWiFi() {
     }
     if (WiFi.status() == WL_CONNECTED) {
         wifi_connected_flag = true;
-        Serial.println("\nWiFi 已连接");
-        Serial.print("IP 地址: ");
-        Serial.println(WiFi.localIP());
+        Serial.printf("\nWiFi 已连接\n");
+        Serial.printf("IP 地址: %s\n", WiFi.localIP().toString().c_str());
     } else {
         wifi_connected_flag = false;
-        Serial.println("\nWiFi 连接失败");
+        Serial.printf("\nWiFi 连接失败\n");
     }
 }
 
@@ -445,7 +460,7 @@ void handleHttpRequests() {
     WiFiClient client = http_server.available();
     if (!client) return;
     
-    Serial.println("新的HTTP客户端已连接!");
+    Serial.printf("新的HTTP客户端已连接!\n");
     unsigned long current_http_req_time = millis();
     unsigned long previous_http_req_time = current_http_req_time;
     String current_line = "";
@@ -479,7 +494,7 @@ void handleHttpRequests() {
     }
     
     client.stop();
-    Serial.println("HTTP客户端已断开连接。");
+    Serial.printf("HTTP客户端已断开连接。\n");
 }
 
 // 计算特定条件下的剩余时间
@@ -509,7 +524,7 @@ void calculateTotalVolume(float initial_weight_g) {
 void performSystemReinitialization() {
     static int reinit_error_count = 0; // 记录连续异常次数
     const int REINIT_ERROR_THRESHOLD = 3; // 异常阈值，超过则锁定系统
-    Serial.println("系统重新初始化请求..."); // 打印初始化请求信息
+    Serial.printf("系统重新初始化请求...\n"); // 打印初始化请求信息
     current_system_state = SystemState::INITIALIZING;  // 设置为初始化中状态
 
     // 重置所有状态变量
@@ -526,7 +541,7 @@ void performSystemReinitialization() {
 
     // 检查称重传感器是否就绪
     if (!scale_sensor.is_ready()) { // 如果HX711未就绪
-        Serial.println("警告: 重新初始化时 HX711 未就绪，系统进入异常状态。"); // 打印警告
+        Serial.printf("警告: 重新初始化时 HX711 未就绪, 系统进入异常状态。\n"); // 打印警告
         current_system_state = SystemState::INIT_ERROR; // 设置为初始化错误状态
         reinit_error_count++; // 异常计数加1
         return; // 退出函数
@@ -540,7 +555,7 @@ void performSystemReinitialization() {
     if (isnan(initial_weight_reading) || isinf(initial_weight_reading) ||  // 检查是否为无效数
         fabsf(initial_weight_reading) > 5000.0f ||  // 检查是否超出合理范围
         initial_weight_reading <= 10.0f) { // 检查纯液体重量是否小于10g
-        Serial.printf("警告: 重新初始化时纯液体重量读数异常: %.2f，系统进入异常状态。\n", initial_weight_reading); // 打印警告
+        Serial.printf("警告: 重新初始化时纯液体重量读数异常: %.2f, 系统进入异常状态。\n", initial_weight_reading); // 打印警告
         current_system_state = SystemState::INIT_ERROR; // 设置为初始化错误状态
         reinit_error_count++; // 异常计数加1
         return; // 退出函数
@@ -603,7 +618,7 @@ void performSystemReinitialization() {
     if (wifi_connected_flag && ws_client_connected_flag) { // 如果WiFi和WebSocket已连接
         char reinit_msg[200]; // 定义消息缓冲区
         snprintf(reinit_msg, sizeof(reinit_msg), 
-                 "警告: 系统已重新初始化。新的初始总重量: %.1fg，目标空重: %.1fg。快速收敛模式已开启（60秒）。", 
+                 "警告: 系统已重新初始化。新的初始总重量: %.1fg, 目标空重: %.1fg。快速收敛模式已开启(60秒)。", 
                  system_initial_total_liquid_weight_g, target_empty_weight_g); // 生成初始化消息
         ws_server.broadcastTXT(reinit_msg); // 广播初始化消息
         char initial_params_msg[100]; // 定义参数消息缓冲区
@@ -635,6 +650,10 @@ void setup() {
 
     // LED指示灯
     pinMode(NEOPIXEL_PIN, OUTPUT);
+
+    // 电机引脚
+    pinMode(MOTOR_PIN1, OUTPUT);
+    pinMode(MOTOR_PIN2, OUTPUT);
 
     // =========================
     //   外设初始化
@@ -674,10 +693,10 @@ void setup() {
         Serial.printf("HTTP服务器已启动: http://%s/\n", WiFi.localIP().toString().c_str());
             ws_server.begin(); 
             ws_server.onEvent(onWebSocketEvent); 
-        Serial.println("WebSocket服务器已启动。");
+        Serial.printf("WebSocket服务器已启动。\n");
             updateOledDisplay();
         } else {
-        Serial.println("警告: WiFi未连接，HTTP/WebSocket服务器未启动。");
+        Serial.printf("警告: WiFi未连接, HTTP/WebSocket服务器未启动。\n");
             oled_display.clearBuffer();
             oled_display.drawStr(0, 10, "WiFi连接失败!");
             oled_display.sendBuffer();
@@ -692,7 +711,7 @@ void setup() {
             pixels.show();
             delay(150);
         }
-
+    stopMotor(); // 确保电机在启动时是停止的
     // =========================
     //   备份滤波器原始参数
     // =========================
@@ -735,6 +754,9 @@ void loop() {
     // 按钮检测
     handleButtonInputs(current_time_ms);
     
+    // 电机处理
+    handleMotor();
+    
     // 异常检测（仅在正常状态下）
     if (current_system_state == SystemState::NORMAL) {
         checkInfusionAbnormality(current_time_ms);
@@ -759,10 +781,15 @@ void loop() {
         current_system_state == SystemState::FAST_CONVERGENCE) {
         handleMainProcessing(current_time_ms);
     } else {
-        // 在异常状态下，仍然更新显示和数据输出
-        updateDisplay();
-        outputData(current_time_ms);
-        delay(100); // 防止死循环
+        // 在异常状态下，以1秒的频率更新显示和数据输出
+        static unsigned long last_abnormal_output_ms = 0;
+        if (current_time_ms - last_abnormal_output_ms >= MAIN_LOOP_INTERVAL_MS) {
+            last_abnormal_output_ms = current_time_ms;
+            updateDisplay();
+            outputData(current_time_ms);
+        }
+        // 短暂延时，避免CPU占用过高
+        delay(10); 
     }
 }
 
@@ -772,63 +799,77 @@ void handleButtonInputs(unsigned long current_time_ms) {
     static bool last_init_button_state = HIGH;
     static unsigned long last_init_button_press_time = 0;
     bool current_init_button_state = digitalRead(PIN_INIT_BUTTON);
-    
-    // 异常复位按钮状态检测
-    static bool last_abnormality_reset_button_state = HIGH;
-    static unsigned long last_abnormality_reset_button_press_time = 0;
-    bool current_abnormality_reset_button_state = digitalRead(PIN_ABNORMALITY_RESET_BUTTON);
 
     // 初始化按钮按下（低电平触发）并去抖
     if (last_init_button_state == HIGH && current_init_button_state == LOW) {
         if (current_time_ms - last_init_button_press_time > INIT_BUTTON_DEBOUNCE_MS) {
-            Serial.println("初始化按钮被按下");
+            Serial.printf("初始化按钮被按下\n");
             last_init_button_press_time = current_time_ms;
             
             // 执行系统重新初始化
             performSystemReinitialization();
             // 直接进入快速收敛模式
             current_system_state = SystemState::FAST_CONVERGENCE;
-    fast_convergence_mode = true;
+            fast_convergence_mode = true;
             fast_convergence_start_ms = current_time_ms;
         }
     }
     last_init_button_state = current_init_button_state;
 
-    // 异常复位按钮按下（低电平触发）并去抖
-    if (last_abnormality_reset_button_state == HIGH && current_abnormality_reset_button_state == LOW) {
-        if (current_time_ms - last_abnormality_reset_button_press_time > ABNORMALITY_RESET_BUTTON_DEBOUNCE_MS) {
-            Serial.println("异常复位按钮被按下");
-        last_abnormality_reset_button_press_time = current_time_ms;
-            
-            // 根据当前状态决定复位行为
-            switch (current_system_state) {
-                case SystemState::INIT_ERROR:
-                    // 如果是初始化错误，执行重新初始化
-                    performSystemReinitialization();
-                    break;
-                case SystemState::INFUSION_ERROR:
-                case SystemState::COMPLETED:  // 添加对完成状态的处理
-                    // 如果是输液异常或完成状态，清除异常标志并恢复正常状态
-            infusion_abnormal = false;
-                    current_system_state = SystemState::NORMAL;
-                    auto_clamp = false;  // 关闭夹断
-                    // 重置检测时间，开始新的检测周期
-                    last_drip_detected_time_ms = current_time_ms;
-                    Serial.println("系统恢复正常状态，开始新的检测周期");
-                    break;
-                case SystemState::FAST_CONVERGENCE:
-                    // 如果是快速收敛模式，恢复正常状态
-                    current_system_state = SystemState::NORMAL;
-                    fast_convergence_mode = false;
-                    Serial.println("退出快速收敛模式，系统恢复正常状态");
-                    break;
-                default:
-                    // 其他状态不需要处理
-                    break;
+    // 异常复位按钮(GPIO0)状态检测，支持单击和长按
+    static unsigned long abnormality_button_press_time = 0;
+    static bool abnormality_button_is_pressed = false;
+    static bool long_press_action_done = false;
+
+    bool current_abnormality_reset_button_state = digitalRead(PIN_ABNORMALITY_RESET_BUTTON);
+
+    if (current_abnormality_reset_button_state == LOW) { // 按钮被按下或按住
+        if (!abnormality_button_is_pressed) { // 按钮刚被按下
+            abnormality_button_is_pressed = true;
+            abnormality_button_press_time = current_time_ms;
+            long_press_action_done = false;
+        } else { // 按钮被持续按住
+            if (!long_press_action_done && (current_time_ms - abnormality_button_press_time > ABNORMALITY_RESET_BUTTON_LONG_PRESS_MS)) {
+                toggleMotorState();
+                long_press_action_done = true; // 标记长按动作已完成，避免重复触发
             }
         }
+    } else { // 按钮未被按下 (高电平)
+        if (abnormality_button_is_pressed) { // 按钮刚被释放
+            // 检查是否为短按 (单击)
+            if (!long_press_action_done) {
+                Serial.printf("异常复位按钮被按下 (单击)\n");
+                
+                // 根据当前状态决定复位行为 (原单击逻辑)
+                switch (current_system_state) {
+                    case SystemState::INIT_ERROR:
+                        // 如果是初始化错误，执行重新初始化
+                        performSystemReinitialization();
+                        break;
+                    case SystemState::INFUSION_ERROR:
+                    case SystemState::COMPLETED:  // 添加对完成状态的处理
+                        // 如果是输液异常或完成状态，清除异常标志并恢复正常状态
+                        infusion_abnormal = false;
+                        current_system_state = SystemState::NORMAL;
+                        auto_clamp = false;  // 关闭夹断
+                        // 重置检测时间，开始新的检测周期
+                        last_drip_detected_time_ms = current_time_ms;
+                        Serial.printf("系统恢复正常状态, 开始新的检测周期\n");
+                        break;
+                    case SystemState::FAST_CONVERGENCE:
+                        // 如果是快速收敛模式，恢复正常状态
+                        current_system_state = SystemState::NORMAL;
+                        fast_convergence_mode = false;
+                        Serial.printf("退出快速收敛模式, 系统恢复正常状态\n");
+                        break;
+                    default:
+                        // 其他状态不需要处理
+                        break;
+                }
+            }
+            abnormality_button_is_pressed = false; // 重置按钮状态
+        }
     }
-    last_abnormality_reset_button_state = current_abnormality_reset_button_state;
 }
 
 // 异常检测
@@ -845,7 +886,7 @@ void checkInfusionAbnormality(unsigned long current_time_ms) {
             infusion_abnormal = true;
             current_system_state = SystemState::INFUSION_ERROR;
             auto_clamp = true;  // 开启夹断
-            Serial.println("警告：检测到输液异常（无滴落）");
+            Serial.printf("警告：检测到输液异常（无滴落）\n");
             
             // 立即上传数据到服务器
             uploadDataToServer();
@@ -865,7 +906,7 @@ void handleFastConvergenceMode(unsigned long current_time_ms) {
     // 检查是否超过快速收敛时间（60秒）
     if (current_time_ms - fast_convergence_start_ms >= FAST_CONVERGENCE_DURATION_MS) {
         if (!has_printed_warning) {
-            Serial.println("快速收敛模式已超过60秒，强制退出");
+            Serial.printf("快速收敛模式已超过60秒, 强制退出\n");
             has_printed_warning = true;
         }
         
@@ -965,7 +1006,7 @@ void handleWeightSensor() {
             } else {
                 raw_weight_g = prev_filt_weight_g_this_main_loop; 
                 current_raw_weight_g_for_flow_calc = prev_raw_weight_g; 
-                Serial.println("警告: HX711 传感器未就绪!");
+                Serial.printf("警告: HX711 传感器未就绪!\n");
             }
             
     float dt_main_loop_s = (millis() - last_loop_run_ms) / 1000.0f;
@@ -1092,7 +1133,7 @@ void handleDataFusion(float dt_main_loop_s) {
         fused_remaining_weight_g <= target_empty_weight_g + 1.0f) {
         current_system_state = SystemState::COMPLETED;
         auto_clamp = true;  // 输液完成时开启夹断
-        Serial.println("输液已完成，系统进入完成状态");
+        Serial.printf("输液已完成, 系统进入完成状态\n");
         if (wifi_connected_flag && ws_client_connected_flag) {
             ws_server.broadcastTXT("ALERT:INFUSION_COMPLETED");
         }
@@ -1131,7 +1172,7 @@ void handleWpdLongCalibration() {
                      elapsed_cal_time_ms / 1000.0f);
                     if(ws_client_connected_flag) ws_server.broadcastTXT(cal_done_msg); 
                 } else if (duration_met && !drops_met) {
-            Serial.printf("WPD长时校准时间已到 (%.1fs)，但累计滴数 (%d) 未达目标 (%d)。\n",
+            Serial.printf("WPD长时校准时间已到 (%.1fs), 但累计滴数 (%d) 未达目标 (%d)。\n",
                           elapsed_cal_time_ms / 1000.0f, wpd_long_cal_accum_drops, 
                           WPD_LONG_CAL_MIN_DROPS);
         }
@@ -1251,7 +1292,7 @@ String getSystemStateText(const SystemState& state) {
 // 数据上传相关函数
 void uploadDataToServer() {
     if (!wifi_connected_flag) {
-        Serial.println("WiFi未连接，无法上传数据");
+        Serial.printf("WiFi未连接, 无法上传数据\n");
         return;
     }
 
@@ -1308,7 +1349,7 @@ void uploadDataToServer() {
     serializeJson(doc, jsonString);
 
     // 打印要发送的JSON数据
-    Serial.println("准备发送的数据：");
+    Serial.printf("准备发送的数据：\n");
     Serial.println(jsonString);
 
     // 发送HTTP请求
@@ -1320,11 +1361,11 @@ void uploadDataToServer() {
     if (httpCode > 0) {
         if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED) {
             String response = http.getString();
-            Serial.println("数据上传成功: " + response);
+            Serial.printf("数据上传成功: %s\n", response.c_str());
         } else {
             String response = http.getString();
-            Serial.printf("HTTP请求失败，错误码: %d\n", httpCode);
-            Serial.println("服务器响应: " + response);
+            Serial.printf("HTTP请求失败, 错误码: %d\n", httpCode);
+            Serial.printf("服务器响应: %s\n", response.c_str());
         }
     } else {
         Serial.printf("HTTP请求失败: %s\n", http.errorToString(httpCode).c_str());
@@ -1332,3 +1373,50 @@ void uploadDataToServer() {
     
     http.end();
 } 
+
+// ==========================
+// 9. 电机控制函数
+// ==========================
+void startMotorForward() {
+    digitalWrite(MOTOR_PIN1, HIGH);
+    digitalWrite(MOTOR_PIN2, LOW);
+}
+
+void startMotorReverse() {
+    digitalWrite(MOTOR_PIN1, LOW);
+    digitalWrite(MOTOR_PIN2, HIGH);
+}
+
+void stopMotor() {
+    digitalWrite(MOTOR_PIN1, LOW);
+    digitalWrite(MOTOR_PIN2, LOW);
+}
+
+void handleMotor() {
+    if (motor_is_running) {
+        if (millis() - motor_start_time_ms >= MOTOR_RUN_DURATION_MS) {
+            stopMotor();
+            motor_is_running = false;
+            Serial.printf("电机停止。\n");
+        }
+    }
+}
+
+void toggleMotorState() {
+    if (motor_is_running) {
+        Serial.printf("电机正在运行中，请等待转动完成。\n");
+        return;
+    }
+
+    if (next_motor_direction == MotorDirection::FORWARD) {
+        Serial.printf("电机启动：正转。\n");
+        startMotorForward();
+        next_motor_direction = MotorDirection::REVERSE;
+    } else {
+        Serial.printf("电机启动：反转。\n");
+        startMotorReverse();
+        next_motor_direction = MotorDirection::FORWARD;
+    }
+    motor_is_running = true;
+    motor_start_time_ms = millis();
+}
