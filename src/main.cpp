@@ -27,6 +27,22 @@
 const char* DEVICE_ID = "001";     // 设备ID
 const char* API_BASE_URL = "http://114.66.55.73:31504"; // API基础URL
 
+// WiFi配置
+constexpr const char* WIFI_SSID  = "1503";           // WiFi SSID
+constexpr const char* WIFI_PASS  = "18310007230";    // WiFi 密码
+constexpr unsigned long MOTOR_RUN_DURATION_MS = 2000; // 电机转动时长
+
+// 硬件引脚配置
+constexpr int PIN_WATER_SENSOR   = 11;          // 水滴传感器引脚
+constexpr int NEOPIXEL_PIN       = 48;          // NeoPixel 数据引脚
+constexpr int PIN_I2C_SDA        = 36;          // I2C SDA 引脚（OLED）
+constexpr int PIN_I2C_SCL        = 1;           // I2C SCL 引脚（OLED）
+constexpr int PIN_HX711_DT       = 17;          // HX711 数据引脚
+constexpr int PIN_HX711_SCK      = 18;          // HX711 时钟引脚
+constexpr int PIN_INIT_BUTTON    = 15;          // 初始化按钮引脚
+constexpr int MOTOR_PIN1         = 6;           // 电机控制引脚1
+constexpr int MOTOR_PIN2         = 7;           // 电机控制引脚2
+
 // ==========================
 // 4. 函数声明
 // ==========================
@@ -96,9 +112,7 @@ enum class SystemState {
     COMPLETED        // 已完成
 };
 
-// WiFi配置
-constexpr const char* WIFI_SSID  = "1503";           // WiFi SSID
-constexpr const char* WIFI_PASS  = "18310007230";    // WiFi 密码
+
 
 // 服务器配置
 constexpr uint16_t WEBSOCKET_PORT = 81;              // WebSocket 服务器端口
@@ -110,16 +124,6 @@ constexpr int PIN_ABNORMALITY_RESET_BUTTON = 0;           // 异常复位按钮 
 constexpr unsigned long ABNORMALITY_RESET_BUTTON_DEBOUNCE_MS = 200; // 按钮去抖时间
 constexpr unsigned long ABNORMALITY_RESET_BUTTON_LONG_PRESS_MS = 1000; // 长按时间
 
-// 硬件引脚配置
-constexpr int PIN_WATER_SENSOR   = 11;         // 水滴传感器引脚
-constexpr int NEOPIXEL_PIN       = 48;         // NeoPixel 数据引脚
-constexpr int PIN_I2C_SDA        = 36;         // I2C SDA 引脚（OLED）
-constexpr int PIN_I2C_SCL        = 1;         // I2C SCL 引脚（OLED）
-constexpr int PIN_HX711_DT       = 17;         // HX711 数据引脚
-constexpr int PIN_HX711_SCK      = 18;         // HX711 时钟引脚
-constexpr int PIN_INIT_BUTTON    = 15;         // 初始化按钮引脚
-constexpr int MOTOR_PIN1 = 6;  // 电机控制引脚1
-constexpr int MOTOR_PIN2 = 7;  // 电机控制引脚2
 
 // NeoPixel 颜色配置（GRB 格式）
 constexpr int NEOPIXEL_BRIGHTNESS = 50;        // NeoPixel 亮度（0-255）
@@ -163,7 +167,6 @@ constexpr float FUSION_R_DRIP_WEIGHT    = 1.0f;             // 融合滴速重�
 constexpr unsigned long MAIN_LOOP_INTERVAL_MS         = 1000;   // 主循环周期（ms）
 constexpr unsigned long INIT_BUTTON_DEBOUNCE_MS      = 200;    // 初始化按钮去抖时间
 constexpr unsigned long FAST_CONVERGENCE_DURATION_MS = 60000;  // 快速收敛时长
-constexpr unsigned long MOTOR_RUN_DURATION_MS = 2000; // 电机转动时长
 
 // WPD 长时间校准配置
 constexpr unsigned long WPD_LONG_CAL_DURATION_MS = 60000;       // WPD 长时间校准目标时长（ms）
