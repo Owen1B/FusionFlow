@@ -1,424 +1,161 @@
 # Smart Infusion Monitoring System
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Platform-ESP32-brightgreen?style=for-the-badge&logo=espressif" alt="Platform">
-  <img src="https://img.shields.io/badge/Framework-Arduino-00979D?style=for-the-badge&logo=arduino" alt="Framework">
-  <img src="https://img.shields.io/badge/Language-C++-00599C?style=for-the-badge&logo=c%2B%2B" alt="Language">
-  <img src="https://img.shields.io/badge/Algorithm-Kalman_Filter-FF6B35?style=for-the-badge" alt="Algorithm">
-</p>
+[![Platform](https://img.shields.io/badge/Platform-ESP32-blueviolet)](https://www.espressif.com/en/products/socs/esp32)
+[![Framework](https://img.shields.io/badge/Framework-Arduino-00979D)](https://www.arduino.cc/)
+[![Language](https://img.shields.io/badge/Language-C%2B%2B-00599C)](https://isocpp.org/)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-<p align="center">
-  <img src="https://img.shields.io/github/license/yourusername/Smart_infusion_PIO?style=flat-square" alt="License">
-  <img src="https://img.shields.io/github/stars/yourusername/Smart_infusion_PIO?style=flat-square" alt="Stars">
-  <img src="https://img.shields.io/github/forks/yourusername/Smart_infusion_PIO?style=flat-square" alt="Forks">
-  <img src="https://img.shields.io/badge/Build-Passing-success?style=flat-square" alt="Build Status">
-</p>
+An embedded system for real-time, high-precision monitoring of medical infusions, utilizing a dual-sensor fusion approach with Kalman filtering algorithms. This project is developed for the ESP32 platform using C++ and PlatformIO.
 
-<p align="center">
-  <strong>A professional embedded systems project implementing dual-sensor data fusion and Kalman filtering algorithms for precise medical infusion monitoring.</strong>
-</p>
+## Overview
 
-<p align="center">
-  <a href="#-features">Features</a> •
-  <a href="#-demo">Demo</a> •
-  <a href="#-quick-start">Quick Start</a> •
-  <a href="#-architecture">Architecture</a> •
-  <a href="#-documentation">Documentation</a> •
-  <a href="#-contributing">Contributing</a>
-</p>
+Traditional infusion monitoring often relies on manual checks or simple drop counters, which can be imprecise and lack real-time feedback. This project addresses these limitations by implementing a sophisticated monitoring system that fuses data from two distinct sensor types: a weight sensor and an optical drip counter.
 
----
+The core of the system is a set of cascaded Kalman filters that process noisy sensor readings to produce a stable and accurate estimation of the infusion flow rate and remaining volume. The system provides real-time data locally on an OLED display and remotely through a web interface.
 
-## 📋 Table of Contents
+## Features
 
-- [Overview](#-overview)
-- [Features](#-features)
-- [Demo](#-demo)
-- [System Architecture](#-system-architecture)
-- [Quick Start](#-quick-start)
-- [Hardware Setup](#-hardware-setup)
-- [Algorithm Implementation](#-algorithm-implementation)
-- [API Reference](#-api-reference)
-- [Performance Metrics](#-performance-metrics)
-- [Development](#-development)
-- [Contributing](#-contributing)
-- [License](#-license)
+- **Dual-Sensor Data Fusion**: Combines readings from an HX711 weight sensor and an optical drip sensor for enhanced accuracy and robustness.
+- **Advanced Signal Processing**: Implements multiple Kalman filters to effectively reduce sensor noise and estimate key state variables (flow rate, volume, etc.).
+- **Auto-Calibration**: Features an online calibration algorithm for the weight-per-drop (WPD) parameter, adapting to different infusion sets and liquid properties.
+- **Real-time Monitoring**: Provides immediate feedback via a local OLED display and a web-based dashboard accessible over WiFi.
+- **Modular Architecture**: Built with a clean, layered software architecture (Hardware Abstraction Layer, System State Manager, Data Processor) for maintainability and testability.
+- **End-to-End Solution**: Includes the embedded firmware, a web server for remote monitoring, and Python scripts for data analysis and filter tuning.
 
-## 🎯 Overview
-
-This system addresses the challenge of accurate infusion rate monitoring in medical environments by combining data from multiple sensors and applying advanced signal processing techniques. The implementation demonstrates proficiency in:
-
-- **Real-time Signal Processing** - Extended Kalman filtering for noise reduction
-- **Multi-sensor Data Fusion** - Combining weight and optical sensors
-- **Embedded Systems Design** - Professional ESP32-based architecture
-- **Medical Device Standards** - Precision monitoring with fail-safe mechanisms
-
-### Core Algorithms
-
-- **Extended Kalman Filter**: Reduces sensor noise and estimates system states (weight, velocity, acceleration)
-- **Multi-Sensor Data Fusion**: Combines weight sensor and optical drip sensor for enhanced accuracy
-- **Adaptive Filtering**: Dynamic parameter adjustment during system initialization
-
-## ✨ Features
-
-### Hardware Capabilities
-- 🏗️ **Dual-Sensor Architecture** - HX711 weight sensor + optical drip detector
-- 📊 **Real-time Processing** - 1Hz data processing with <60s convergence
-- 🖥️ **Multi-Interface Display** - OLED local display + web monitoring
-- 🚨 **Smart Alerting** - Automatic abnormality detection with visual/audio alerts
-- 🔧 **Professional Build** - Modular architecture with comprehensive error handling
-
-### Software Features
-- 📡 **WebSocket Real-time Communication** - Live data streaming to monitoring stations
-- 🎛️ **RESTful API** - Complete HTTP API for system integration
-- 🧪 **Unit Testing** - Comprehensive test suite for all algorithms
-- 📚 **Professional Documentation** - Complete technical documentation
-- 🔐 **Security** - Configurable credentials with no hardcoded secrets
-
-## 🎬 Demo
+## Demo
 
 ### Web Monitoring Interface
+The following image shows the web dashboard, which displays real-time data for multiple infusion devices, including current status, flow rate, and estimated remaining time.
 
-<p align="center">
-  <img src="docs/images/web_interface.png" alt="Web Monitoring Interface" width="800">
-</p>
+![Web Interface](docs/images/web_interface.png)
 
-The web interface provides real-time monitoring capabilities including:
-- Live infusion progress tracking
-- Real-time flow rate visualization
-- System status monitoring
-- Historical data analysis
-- Remote control capabilities
+### System Demonstration Video
+A complete demonstration of the system in operation, from setup to real-time monitoring and alert handling.
 
-### Video Demonstration
+https://github.com/your-username/Smart_infusion_PIO/assets/your-user-id/a1b2c3d4-e5f6-7890-1234-abcdef123456
 
-> 📹 **Live Demo Video**: [Watch the system in action](https://your-video-url.com)
-> 
-> *The video demonstrates the complete infusion monitoring process, including sensor calibration, real-time data processing, and abnormality detection.*
+> **Note**: To embed a video, you can upload the `demo.mp4` file to a GitHub issue in this repository and then paste the generated link here. The link above is a placeholder.
 
-**What the demo shows:**
-- System initialization and sensor calibration
-- Real-time weight and drip rate monitoring
-- Kalman filter convergence behavior
-- Web interface responsiveness
-- Abnormality detection and recovery
+## System Architecture
 
-## 🏗️ System Architecture
+The system is composed of a hardware layer, an embedded software layer, and a remote monitoring interface.
 
-<p align="center">
-  <img src="https://mermaid.ink/img/pako:eNpVkMFqwzAMhl9F6NRC-wI59LBCYYONwmCDXYJBsWXXYrZkLKet6d69TrP2MC7_h_7_J3SBlmhEdkzofQPZNHzTmUdLt-xGz1Nv36eTnxKFh_n5Ywcw8E7vKr_5lKmX-vGYJgO3bXBfkwmYz6_Xk6z6O2AqnKnBqIDOa-tpVmGb1dSQNYE2StsINWUlbZwxpgVzKE1QtlFQRmUKG6d8gNbREOHrfT6_wGkL5-DQZB5O8dH5QKHdHB-ejzHDdLnJLG8Y2eiIVqfCGKfHmEb24sHvzTb4HnoKtBdQ_WP5A1Pqmcg" alt="System Architecture" width="700">
-</p>
+```mermaid
+graph TD
+    subgraph Hardware Layer
+        A[ESP32 Microcontroller]
+        B[HX711 Weight Sensor]
+        C[Optical Drip Sensor]
+        D[OLED Display]
+        E[User Input Buttons]
+    end
 
-```text
-Hardware Layer
-├── ESP32-S3 Microcontroller      # Main processing unit
-├── HX711 Load Cell Amplifier     # Weight measurement (24-bit ADC)
-├── Optical Drip Sensor           # Drop detection (IR interrupt)
-├── OLED Display (128x32)         # Local status display
-├── RGB LED Status Indicator      # Visual system status
-└── Physical Control Buttons      # User interaction
+    subgraph Embedded Software
+        F[HardwareManager]
+        G[SystemStateManager]
+        H[SensorDataProcessor]
+        I[Application Logic - main.cpp]
 
-Software Layer
-├── SystemStateManager            # Finite state machine implementation
-├── SensorDataProcessor           # Kalman filtering and data fusion
-├── HardwareManager              # Hardware abstraction layer
-├── WeightKalmanFilter           # 3-state weight processing
-├── DripKalmanFilter             # Drip rate estimation with WPD calibration
-└── DataFusion                   # Multi-sensor fusion algorithms
+        subgraph SensorDataProcessor
+            J[WeightKalmanFilter]
+            K[DripKalmanFilter]
+            L[DataFusion]
+        end
+    end
+    
+    subgraph Remote Interface
+        M[Web Browser]
+        N[WebSocket Server on ESP32]
+    end
+
+    B --> F
+    C --> F
+    D --> F
+    E --> F
+    
+    F --> I
+    G --> I
+    H --> I
+    
+    I --> G
+    I --> H
+    
+    H --> J
+    H --> K
+    H --> L
+
+    J --> L
+    K --> L
+    
+    I -- WebSocket Data --> N
+    N -- Real-time Data --> M
 ```
 
-## 🚀 Quick Start
+## Algorithm Design
+
+The system's precision relies on a multi-stage filtering process:
+
+1.  **`WeightKalmanFilter`**: A 3-state Kalman filter (`[weight, velocity, acceleration]`) processes the raw weight data. It smooths the readings and provides a primary flow rate estimation based on the rate of weight change (velocity).
+
+2.  **`DripKalmanFilter`**: A more complex module containing two filters:
+    *   A 2-state Kalman filter (`[drip_rate, drip_acceleration]`) smooths the raw drip counts.
+    *   A 1-state Kalman filter performs online calibration of the **Weight-Per-Drop (WPD)** by correlating the total drip count with the total weight change measured by the weight sensor. This allows the system to self-correct for different infusion tube characteristics.
+
+3.  **`DataFusion`**: This final stage fuses the flow rate estimates from both the weight and drip filters using a simple 1D Kalman filter. This produces a final, robust estimation that leverages the strengths of both sensors, ensuring accuracy even if one sensor is temporarily unreliable.
+
+## Getting Started
 
 ### Prerequisites
 
-- **PlatformIO IDE** or PlatformIO Core
-- **ESP32-S3 Development Board**
-- **Hardware components** as specified in the [Hardware Setup](#-hardware-setup)
+- [PlatformIO CLI](https://platformio.org/install/cli) or a PlatformIO-compatible IDE (e.g., VSCode with the PlatformIO extension).
+- ESP32-S3 development board.
+- Hardware components as listed in the `platformio.ini` file and project schematics (to be added).
+
+### Installation & Setup
+
+1.  **Clone the repository:**
+    ```sh
+    git clone https://github.com/your-username/Smart_infusion_PIO.git
+    cd Smart_infusion_PIO
+    ```
+
+2.  **Configure WiFi Credentials:**
+    -   Copy `include/Config.h.example` to `include/Config.h`.
+    -   Edit `include/Config.h` to enter your WiFi SSID and password.
+
+3.  **Build and Upload:**
+    Connect the ESP32 board and run the following command:
+    ```sh
+    platformio run --target upload
+    ```
+
+4.  **Monitor Output:**
+    To view serial output and see the IP address assigned to the device:
+    ```sh
+    platformio device monitor
+    ```
+
+## Code Structure
+
+    .
+    ├── include/              # Header files for the embedded application
+    │   ├── Config.h          # System configuration (WiFi, etc.)
+    │   ├── HardwareManager.h # Hardware Abstraction Layer
+    │   ├── ...               # Other class headers
+    ├── src/                  # Source files for the embedded application
+    │   ├── main.cpp          # Main application entry point
+    │   ├── DataFusion.cpp    # Data fusion algorithm implementation
+    │   ├── ...               # Other class implementations
+    ├── lib/                  # Project-specific libraries (if any)
+    ├── test/                 # Unit tests for the embedded code
+    ├── scripts/              # Python scripts for data analysis and simulation
+    │   ├── kalman_tuning.ipynb # Jupyter notebook for filter parameter tuning
+    │   └── ...
+    ├── server/               # Node.js server and React frontend for remote monitoring
+    ├── platformio.ini        # PlatformIO project configuration
+    └── README.md             # This file
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
 
-### Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/Smart_infusion_PIO.git
-cd Smart_infusion_PIO
-
-# Configure WiFi credentials
-cp include/Config.h.example include/Config.h
-# Edit include/Config.h with your network settings
-
-# Build and upload
-pio run -e esp32-s3-devkitc-1 -t upload
-
-# Monitor serial output
-pio device monitor --baud 115200
-```
-
-### Configuration
-
-Update the configuration in `include/Config.h`:
-
-```cpp
-namespace NetworkConfig {
-    const char* const WIFI_SSID = "YOUR_NETWORK_NAME";
-    const char* const WIFI_PASSWORD = "YOUR_PASSWORD";
-    const char* const API_BASE_URL = "YOUR_SERVER_URL";
-}
-```
-
-### First Run
-
-1. **Power on** the device
-2. **Check serial monitor** for IP address
-3. **Open web interface** at `http://[DEVICE_IP]`
-4. **Initialize system** using the web interface or physical button
-
-## 🔧 Hardware Setup
-
-### Pin Configuration
-
-| Component | ESP32-S3 Pin | Function | Notes |
-|-----------|--------------|----------|--------|
-| **HX711 Data** | GPIO 17 | Load cell data | 24-bit ADC |
-| **HX711 Clock** | GPIO 18 | Load cell clock | SPI-like interface |
-| **Drip Sensor** | GPIO 11 | Interrupt input | Falling edge trigger |
-| **OLED SDA** | GPIO 36 | I2C data | 128x32 display |
-| **OLED SCL** | GPIO 1 | I2C clock | 400kHz max |
-| **Status LED** | GPIO 48 | NeoPixel data | WS2812B compatible |
-| **Init Button** | GPIO 15 | System reset | Pull-up enabled |
-| **Reset Button** | GPIO 0 | Abnormality clear | Pull-up enabled |
-
-### Component Specifications
-
-| Component | Specification | Range/Accuracy |
-|-----------|---------------|----------------|
-| **Weight Sensor** | HX711 + 5kg Load Cell | ±0.5g precision |
-| **Drip Sensor** | Optical Interrupt (IR) | 50ms debounce |
-| **Display** | SSD1306 OLED 128x32 | I2C interface |
-| **Status LED** | WS2812B RGB | Programmable colors |
-
-### Wiring Diagram
-
-```text
-ESP32-S3          HX711          Load Cell
-GPIO17  --------> DT             
-GPIO18  --------> SCK            
-3.3V    --------> VCC            
-GND     --------> GND            
-                  E+   --------> Red Wire
-                  E-   --------> Black Wire  
-                  A-   --------> White Wire
-                  A+   --------> Green Wire
-```
-
-## 🧮 Algorithm Implementation
-
-### Kalman Filter Design
-
-The system implements three specialized Kalman filters optimized for medical monitoring:
-
-#### 1. Weight Filter (3-State)
-```text
-State Vector: [weight(g), velocity(g/s), acceleration(g/s²)]
-
-Process Model:
-x(k+1) = F·x(k) + w(k)
-
-Where F = [1  dt  0.5*dt²]
-          [0  1   dt     ]
-          [0  0   1      ]
-```
-
-#### 2. Drip Rate Filter (2-State)
-```text
-State Vector: [drip_rate(dps), drip_acceleration(dps²)]
-Measurement: Raw drip count over time interval
-```
-
-#### 3. Data Fusion (Multi-Sensor)
-```text
-Combines outputs from Weight and Drip filters using weighted fusion:
-fused_estimate = w1·weight_estimate + w2·drip_estimate
-```
-
-### Performance Characteristics
-
-| Metric | Specification | Achieved |
-|--------|---------------|----------|
-| **Update Rate** | 1 Hz | ✅ 1.00 Hz |
-| **Convergence Time** | <60 seconds | ✅ ~45 seconds |
-| **Weight Precision** | ±1g | ✅ ±0.5g |
-| **Flow Rate Accuracy** | ±5% | ✅ ±2% |
-| **False Alarm Rate** | <1% | ✅ <0.1% |
-
-## 📡 API Reference
-
-### HTTP Endpoints
-
-```http
-GET /api/status
-# Returns current system status and measurements
-
-POST /api/calibrate
-# Initiates sensor calibration sequence
-
-GET /api/data
-# Real-time monitoring data (JSON)
-
-PUT /api/config
-# Update system configuration
-```
-
-### WebSocket Interface
-
-```javascript
-// Connect to WebSocket
-const ws = new WebSocket('ws://[DEVICE_IP]:81');
-
-// Receive real-time data
-ws.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-    console.log('Real-time data:', data);
-};
-```
-
-### Response Format
-
-```json
-{
-    "timestamp": 1625097600000,
-    "system_state": "NORMAL",
-    "measurements": {
-        "weight_g": 485.2,
-        "flow_rate_gps": 0.083,
-        "remaining_time_min": 97
-    },
-    "sensor_health": {
-        "weight_sensor": "OK",
-        "drip_sensor": "OK"
-    }
-}
-```
-
-## 📊 Performance Metrics
-
-### Validation Results
-
-Our system has been validated with the following performance metrics:
-
-- **Steady-state Error**: <1% of measured value
-- **Response Time**: <30 seconds for flow rate changes  
-- **System Uptime**: >99% over 24-hour continuous operation
-- **Memory Usage**: <60% of ESP32-S3 capacity
-- **Power Consumption**: <2W average
-
-### Benchmark Comparison
-
-| System | Accuracy | Response Time | Cost |
-|--------|----------|---------------|------|
-| **This Project** | ±2% | 30s | $ |
-| Commercial A | ±5% | 60s | $$$ |
-| Commercial B | ±3% | 45s | $$$$ |
-
-## 🛠️ Development
-
-### Building from Source
-
-```bash
-# Development build with debug symbols
-pio run -e development
-
-# Production build optimized
-pio run -e esp32-s3-devkitc-1
-
-# Run unit tests
-pio test -e native
-```
-
-### Testing
-
-```bash
-# Run all tests
-pio test -e native
-
-# Run specific test suite
-pio test -e native -f test_kalman_filters
-
-# Run with coverage
-pio test -e native --verbose
-```
-
-### Code Structure
-
-```text
-📁 Smart_infusion_PIO/
-├── 📁 src/                      # Source code
-│   ├── 📄 main_refactored.cpp   # Main application logic
-│   ├── 📄 SystemStateManager.cpp # State machine implementation  
-│   └── 📄 *.cpp                 # Algorithm implementations
-├── 📁 include/                  # Header files
-│   ├── 📄 Config.h              # System configuration
-│   └── 📄 *.h                   # Class interfaces
-├── 📁 test/                     # Unit tests
-│   ├── 📁 test_weight_kf/       # Weight filter tests
-│   └── 📁 test_*/               # Other test suites
-├── 📁 docs/                     # Documentation
-│   ├── 📁 images/               # Screenshots and diagrams
-│   └── 📄 *.md                  # Technical documentation
-└── 📄 README.md                 # This file
-```
-
-### Contributing Guidelines
-
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
-
-1. **Fork** the repository
-2. **Create** a feature branch (`git checkout -b feature/AmazingFeature`)
-3. **Commit** changes (`git commit -m 'Add AmazingFeature'`)
-4. **Push** to branch (`git push origin feature/AmazingFeature`)
-5. **Open** a Pull Request
-
-## 📚 Documentation
-
-### Additional Resources
-
-- 📖 [Kalman Filter Tuning Guide](docs/kalman_filter_tuning_guide.md)
-- 🏗️ [Hardware Assembly Guide](docs/hardware_setup.md)
-- 🧪 [Testing Procedures](docs/testing.md)
-- 🐛 [Troubleshooting Guide](docs/troubleshooting.md)
-- 📋 [API Documentation](server/API.md)
-
-### Academic References
-
-This project implements concepts from:
-- Kalman, R.E. (1960). "A New Approach to Linear Filtering and Prediction Problems"
-- Welch, G. & Bishop, G. (2006). "An Introduction to the Kalman Filter"
-
-## 🏆 Recognition
-
-This project has been:
-- 🥇 Featured in embedded systems coursework
-- 📄 Submitted to IEEE conferences
-- 🎓 Used in graduate-level algorithm courses
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🤝 Acknowledgments
-
-- **Arduino Community** for the extensive library ecosystem
-- **PlatformIO Team** for the excellent development platform
-- **Kalman Filter Research Community** for theoretical foundations
-
----
-
-<p align="center">
-  <strong>Built with ❤️ for precision medical monitoring</strong>
-</p>
-
-<p align="center">
-  <a href="https://github.com/yourusername/Smart_infusion_PIO/issues">Report Bug</a> •
-  <a href="https://github.com/yourusername/Smart_infusion_PIO/issues">Request Feature</a> •
-  <a href="#-documentation">Documentation</a> •
-  <a href="mailto:your.email@example.com">Contact</a>
-</p>

@@ -1,10 +1,10 @@
 #ifndef SENSOR_DATA_PROCESSOR_H
 #define SENSOR_DATA_PROCESSOR_H
 
-#include "../src/WeightKalmanFilter.h"
-#include "../src/DripKalmanFilter.h"
-#include "../src/DataFusion.h"
-#include "../include/Config.h"
+#include "WeightKalmanFilter.h"
+#include "DripKalmanFilter.h"
+#include "DataFusion.h"
+#include "Config.h"
 
 /**
  * @brief Sensor data processing result structure

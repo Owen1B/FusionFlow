@@ -24,16 +24,16 @@
 #endif
 
 /**
- * @brief DripKalmanFilter 类的构造函数。
+ * @brief Constructor for the DripKalmanFilter class.
  *
- * @param drip_rate_sigma_a 滴速卡尔曼滤波器的过程噪声参数 (未建模的滴速加速度的标准差)。
- *                          影响滤波器对滴速真实变化的跟踪能力和估计的平滑度。
- * @param drip_rate_R_noise 滴速卡尔曼滤波器的测量噪声方差 (针对由 drop_count/time_interval 计算的原始滴速)。
- *                          反映了原始滴速计算的可靠性。
- * @param wpd_Q_noise 每滴重量(WPD)校准用卡尔曼滤波器的过程噪声方差。
- *                      假设在校准期间，真实的每滴重量也可能发生微小变化或漂移。
- * @param wpd_R_noise 每滴重量(WPD)校准用卡尔曼滤波器的测量噪声方差。
- *                      反映了 (weight_change / drop_count) 这个WPD测量计算值的可靠性。
+ * @param drip_rate_sigma_a Process noise parameter for the drip rate Kalman filter (std dev of unmodeled drip acceleration).
+ *                          This affects the filter's ability to track true changes in drip rate versus smoothing noise.
+ * @param drip_rate_R_noise Measurement noise variance for the drip rate Kalman filter (for the raw drip rate calculated from drop_count/time_interval).
+ *                          Reflects the reliability of the raw drip rate calculation.
+ * @param wpd_Q_noise Process noise variance for the Weight-Per-Drop (WPD) calibration Kalman filter.
+ *                    Assumes the true WPD might also undergo minor changes or drift during calibration.
+ * @param wpd_R_noise Measurement noise variance for the WPD calibration Kalman filter.
+ *                    Reflects the reliability of the WPD measurement calculated from (weight_change / drop_count).
  */
 DripKalmanFilter::DripKalmanFilter(float drip_rate_sigma_a, float drip_rate_R_noise,
                                    float wpd_Q_noise, float wpd_R_noise) {
@@ -56,20 +56,20 @@ DripKalmanFilter::DripKalmanFilter(float drip_rate_sigma_a, float drip_rate_R_no
     current_default_drops_per_ml = DEFAULT_DROPS_PER_ML;
     current_liquid_density_g_per_ml = DEFAULT_LIQUID_DENSITY_G_PER_ML;
 
-    // 初始化新增的成员变量
+    // Initialize new member variables
     known_initial_total_weight_g = 0.0f;
     total_drops_for_volume_calc = 0;
     initial_weight_for_volume_calc_set = false;
 }
 
 /**
- * @brief 初始化或重置滤波器的状态。
+ * @brief Initializes or resets the filter's state.
  *
- * @param initial_drip_rate_dps 初始滴速的最佳估计值 (drips/sec)。
- * @param initial_wpd_g_per_drip 初始每滴重量的最佳估计值 (g/drip)。
- *                               如果 <= 0, 则使用基于 drops_per_ml 和 density_g_per_ml 的默认计算值。
- * @param drops_per_ml 每毫升的滴数，用于计算默认WPD。
- * @param density_g_per_ml 液体密度 (g/mL)，用于计算默认WPD和流速单位转换。
+ * @param initial_drip_rate_dps Best initial estimate for the drip rate (drips/sec).
+ * @param initial_wpd_g_per_drip Best initial estimate for the weight per drop (g/drip).
+ *                               If <= 0, a default value is calculated based on drops_per_ml and density_g_per_ml.
+ * @param drops_per_ml Number of drops per mL, used for default WPD calculation.
+ * @param density_g_per_ml Liquid density (g/mL), used for default WPD calculation and flow rate unit conversion.
  */
 void DripKalmanFilter::init(float initial_drip_rate_dps, 
                             float initial_wpd_g_per_drip,
@@ -100,13 +100,13 @@ void DripKalmanFilter::init(float initial_drip_rate_dps,
 }
 
 /**
- * @brief 使用新的传感器数据更新滤波器状态。
+ * @brief Updates the filter state with new sensor data.
  *
- * @param measured_drip_rate 测量得到的滴速 (drips/sec)。
- * @param time_interval_s 距离上一次调用 update() 的时间间隔 (秒)。必须大于0。
- * @param weight_sensor_change_g 从重量传感器测得的实际重量变化值 (g)。
- *                               此参数仅在 calibrating_wpd 为 true 时用于WPD校准。
- *                               通常是 (上周期重量 - 本周期重量)，消耗时为正。
+ * @param measured_drip_rate The measured drip rate (drips/sec).
+ * @param time_interval_s Time interval since the last update() call (in seconds). Must be > 0.
+ * @param weight_sensor_change_g The change in weight measured by the weight sensor (in g).
+ *                               This parameter is only used for WPD calibration when calibrating_wpd is true.
+ *                               It's typically (previous_weight - current_weight), so it's positive during consumption.
  */
 void DripKalmanFilter::update(float measured_drip_rate, float time_interval_s, float weight_sensor_change_g) {
     if (time_interval_s <= 1e-6f) {
@@ -169,35 +169,13 @@ void DripKalmanFilter::update(float measured_drip_rate, float time_interval_s, f
     P_drip_rate_cov[1][0] = I_KH_dr[1][0]*P_pred_dr[0][0] + I_KH_dr[1][1]*P_pred_dr[1][0];
     P_drip_rate_cov[1][1] = I_KH_dr[1][0]*P_pred_dr[0][1] + I_KH_dr[1][1]*P_pred_dr[1][1];
 
-    // === 2. Update Weight Per Drop (WPD) if calibrating === 
-    // if (calibrating_wpd && measured_drip_rate > 1e-3f && weight_sensor_change_g > 1e-3f) {
-    //     // 计算测量得到的WPD
-    //     float measured_wpd = fabsf(weight_sensor_change_g) / (measured_drip_rate * time_interval_s);
-        
-    //     // 1D Kalman Filter for WPD
-    //     float wpd_pred_estimate = wpd_estimate_g_per_drip;
-    //     float P_wpd_pred_cov = P_wpd_cov + Q_wpd_process_noise;
 
-    //     float S_wpd_inv = P_wpd_pred_cov + R_wpd_measurement_noise;
-    //     if (fabsf(S_wpd_inv) < 1e-9f) S_wpd_inv = (S_wpd_inv >=0)? 1e-9f : -1e-9f;
-    //     S_wpd_inv = 1.0f / S_wpd_inv;
-    //     float K_wpd = P_wpd_pred_cov * S_wpd_inv;
-
-    //     wpd_estimate_g_per_drip = wpd_pred_estimate + K_wpd * (measured_wpd - wpd_pred_estimate);
-    //     P_wpd_cov = (1.0f - K_wpd) * P_wpd_pred_cov;
-
-    //     if (wpd_estimate_g_per_drip < 0.04f) {
-    //         wpd_estimate_g_per_drip = 0.04f;
-    //     } else if (wpd_estimate_g_per_drip > 0.06f) {
-    //         wpd_estimate_g_per_drip = 0.06f;
-    //     }
-    // }
 }
 
 /**
- * @brief 计算并返回基于当前滤波后滴速和校准后每滴重量的流速。
+ * @brief Calculates and returns the flow rate based on the current filtered drip rate and calibrated WPD.
  *
- * @return float 流速 (g/sec)。 如果校准的每滴重量不合理（过小），则返回0。
+ * @return float Flow rate in grams per second (g/sec). Returns 0 if the calibrated WPD is not sensible (e.g., too small).
  */
 float DripKalmanFilter::getFlowRateGramsPerSecond() const {
     if (wpd_estimate_g_per_drip <= 1e-6f) return 0.0f; // Avoid issues if WPD is not sensible
@@ -205,9 +183,9 @@ float DripKalmanFilter::getFlowRateGramsPerSecond() const {
 }
 
 /**
- * @brief 计算并返回基于当前流速(g/s)和液体密度的流速(mL/h)。
+ * @brief Calculates and returns the flow rate in mL/hour based on the current flow rate (g/s) and liquid density.
  *
- * @return float 流速 (mL/hour)。如果每滴重量或液体密度不合理，则返回0。
+ * @return float Flow rate in milliliters per hour (mL/hour). Returns 0 if WPD or liquid density are not sensible.
  */
 float DripKalmanFilter::getFlowRateMlPerHour() const {
     if (wpd_estimate_g_per_drip <= 1e-6f || current_liquid_density_g_per_ml <= 1e-6f) return 0.0f;
@@ -217,10 +195,11 @@ float DripKalmanFilter::getFlowRateMlPerHour() const {
 }
 
 /** 
- * @brief 启动每滴重量(WPD)的校准过程。
- * 调用此函数会使滤波器在后续的 update() 调用中，
- * 使用传入的重量变化和滴数来更新其内部的WPD估计。
- * 它还会重置WPD估计的协方差，以表示对新校准数据的更高接纳度。
+ * @brief Starts the Weight-Per-Drop (WPD) calibration process.
+ * Calling this function enables the filter to use weight change and drip count 
+ * in subsequent update() calls to refine its internal WPD estimate.
+ * It also resets the WPD estimation covariance to reflect a higher uncertainty,
+ * making it more receptive to new calibration data.
  */
 void DripKalmanFilter::startWpdCalibration() {
     calibrating_wpd = true;
@@ -228,16 +207,16 @@ void DripKalmanFilter::startWpdCalibration() {
     P_wpd_cov = 0.25f; 
 }
 
-// --- 实现新增的基于滴数计算剩余量的方法 ---
+// --- Implementation of methods for remaining volume calculation based on drip count ---
 void DripKalmanFilter::setInitialLiquidWeightForVolumeCalc(float initial_weight_g) {
     known_initial_total_weight_g = initial_weight_g;
-    total_drops_for_volume_calc = 0; // 重置累计滴数
+    total_drops_for_volume_calc = 0; // Reset cumulative drip count
     initial_weight_for_volume_calc_set = true;
 }
 
 void DripKalmanFilter::updateTotalDropsForVolumeCalc(int drops_in_latest_period) {
-    if (initial_weight_for_volume_calc_set) { // 只有在初始重量设置后才累计
-        if (drops_in_latest_period > 0) { // 确保滴数为正
+    if (initial_weight_for_volume_calc_set) { // Only accumulate after initial weight is set
+        if (drops_in_latest_period > 0) { // Ensure drops are positive
              total_drops_for_volume_calc += (unsigned long)drops_in_latest_period;
         }
     }
@@ -245,19 +224,19 @@ void DripKalmanFilter::updateTotalDropsForVolumeCalc(int drops_in_latest_period)
 
 float DripKalmanFilter::getInfusedWeightByDropsG() const {
     if (!initial_weight_for_volume_calc_set) {
-        return 0.0f; // 如果初始重量未设置，则认为未输注
+        return 0.0f; // If initial weight is not set, assume no infusion has occurred
     }
-    // 使用一个合理的WPD下限，防止wpd_estimate_g_per_drip为0或过小导致问题
+    // Use a reasonable lower bound for WPD to prevent issues if wpd_estimate_g_per_drip is zero or too small
     float current_wpd = (wpd_estimate_g_per_drip > 0.001f) ? wpd_estimate_g_per_drip : (1.0f / current_default_drops_per_ml) * current_liquid_density_g_per_ml;
-    if (current_wpd < 0.001f) current_wpd = 0.05f; // 最后的保障，0.05g/drip (20drip/ml)
+    if (current_wpd < 0.001f) current_wpd = 0.05f; // Final safeguard, 0.05g/drip (20drip/ml)
 
     return (float)total_drops_for_volume_calc * current_wpd;
 }
 
 float DripKalmanFilter::getRemainingWeightByDropsG() const {
     if (!initial_weight_for_volume_calc_set) {
-        return 0.0f; // 或者返回一个特殊值，例如 known_initial_total_weight_g (如果它被初始化了)
-                     // 或者让调用者检查 initial_weight_for_volume_calc_set
+        return 0.0f; // Or return a special value, e.g., known_initial_total_weight_g if it was initialized
+                     // Or let the caller check initial_weight_for_volume_calc_set
     }
     float infused_weight = getInfusedWeightByDropsG();
     float remaining = known_initial_total_weight_g - infused_weight;
@@ -266,15 +245,15 @@ float DripKalmanFilter::getRemainingWeightByDropsG() const {
 
 void DripKalmanFilter::calibrateWpdByTotal(float current_weight) {
     if (!calibrating_wpd || !initial_weight_for_volume_calc_set) return;
-    if (total_drops_for_volume_calc < 5) return; // 滴数太少不校准，防止初期不稳定
+    if (total_drops_for_volume_calc < 5) return; // Don't calibrate with too few drops to avoid initial instability
 
     float delta_weight = known_initial_total_weight_g - current_weight;
-    if (delta_weight < 0.01f) return; // 变化太小不校准
+    if (delta_weight < 0.01f) return; // Don't calibrate if change is too small
 
     float measured_wpd = delta_weight / (float)total_drops_for_volume_calc;
-    if (measured_wpd < 0.01f || measured_wpd > 0.2f) return; // 异常值保护
+    if (measured_wpd < 0.01f || measured_wpd > 0.2f) return; // Outlier protection
 
-    // 1D卡尔曼滤波
+    // 1D Kalman Filter
     float wpd_pred_estimate = wpd_estimate_g_per_drip;
     float P_wpd_pred_cov = P_wpd_cov + Q_wpd_process_noise;
     float S_wpd_inv = P_wpd_pred_cov + R_wpd_measurement_noise;
@@ -287,4 +266,4 @@ void DripKalmanFilter::calibrateWpdByTotal(float current_weight) {
 
     if (wpd_estimate_g_per_drip < 0.04f) wpd_estimate_g_per_drip = 0.04f;
     if (wpd_estimate_g_per_drip > 0.06f) wpd_estimate_g_per_drip = 0.06f;
-} 
+}  
