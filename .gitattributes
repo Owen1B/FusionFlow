@@ -1,0 +1,4 @@
+# Exclude Jupyter notebooks and analysis scripts from language statistics
+*.ipynb linguist-vendored
+/scripts/*.py linguist-vendored
+
