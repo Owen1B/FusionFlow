@@ -32,7 +32,7 @@ The following image shows the web dashboard, which displays real-time data for m
 ### System Demonstration Video
 A complete demonstration of the system in operation, from setup to real-time monitoring and alert handling.
 
-https://github.com/your-username/Smart_infusion_PIO/assets/your-user-id/a1b2c3d4-e5f6-7890-1234-abcdef123456
+https://github.com/user-attachments/assets/89d09ea9-4cbe-42cc-89d2-e86c948f0297
 
 > **Note**: To embed a video, you can upload the `demo.mp4` file to a GitHub issue in this repository and then paste the generated link here. The link above is a placeholder.
 
